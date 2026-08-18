@@ -29,6 +29,22 @@ if [ ! -d "frontend/dist" ]; then
   (cd frontend && npm install --no-audit --no-fund && npm run build)
 fi
 
-echo "[4/4] 启动中，请打开浏览器访问 http://localhost:8000"
+echo "[4/4] 启动中..."
+
+# 端口占用自动清理（仅关闭 python 旧实例）
+if command -v lsof >/dev/null 2>&1; then
+  PIDS=$(lsof -ti tcp:8000 2>/dev/null || true)
+  if [ -n "$PIDS" ]; then
+    echo "[提示] 8000 端口被旧程序占用，正在自动关闭旧实例..."
+    for pid in $PIDS; do
+      if ps -p "$pid" -o comm= 2>/dev/null | grep -qi python; then
+        kill -9 "$pid" 2>/dev/null || true
+      fi
+    done
+    sleep 2
+  fi
+fi
+
+echo "浏览器访问 http://localhost:8000"
 echo "      （按 Ctrl+C 停止程序；下次运行本脚本即可再次启动）"
 .venv/bin/python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
