@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# 数据与密钥（密钥仅保存在本地，不入库）
+backend/data/
+backend/.env
+.env
+
+# 系统
+.DS_Store
+*.log
+.idea/
+.vscode/
