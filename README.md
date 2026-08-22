@@ -25,7 +25,9 @@
 | 🌗 深浅主题 | 浅色/深色模式一键切换，自动记忆 |
 | ➗ 数理专项 | 定理按「定义→推导→适用条件→例题→易错点」整理，公式 LaTeX 输出 |
 | 💻 计算机专项 | 代码片段提取、逻辑拆解、拓展练手 |
-| 📤 多格式导出 | Markdown / PDF / Anki(.apkg) / CSV |
+| 📤 多格式导出 | Markdown / PDF / Word(DOCX 含关键帧截图) / XMind / Anki(.apkg) / CSV |
+| 💬 AI 答疑 | 基于笔记上下文的流式对话（逐字输出），支持 Mermaid 图示化回答 |
+| 🖼 关键帧嵌入 | 按章节提取视频关键帧截图，嵌入笔记与 Word/PDF 导出 |
 | 🔌 灵活模型 | DeepSeek / Kimi / 通义千问 / 本地 Ollama 统一封装，密钥仅存本地 SQLite |
 | 🐳 双启动 | Docker Compose 一键部署 + 原生终端启动 |
 

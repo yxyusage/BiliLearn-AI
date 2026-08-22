@@ -43,6 +43,8 @@
         <div class="toolbar-actions">
           <el-button size="small" @click="download('markdown')">导出 Markdown</el-button>
           <el-button size="small" @click="download('pdf')">导出 PDF</el-button>
+          <el-button size="small" @click="download('docx')">导出 Word</el-button>
+          <el-button size="small" @click="download('xmind')">导出 XMind</el-button>
           <el-button v-if="hasWords" size="small" @click="download('anki')">Anki 卡片</el-button>
           <el-button v-if="hasWords" size="small" @click="download('anki.csv')">CSV</el-button>
           <el-button size="small" type="primary" plain @click="chatVisible = true">💬 AI 答疑</el-button>
@@ -82,6 +84,13 @@
                   >{{ ci + 1 }}. {{ ch.title }}</el-tag>
                 </div>
 
+                <div v-if="!keyframesList.length" class="quiz-entry">
+                  <el-button size="small" type="primary" plain :loading="keyframesLoading" @click="generateKeyframes">
+                    🖼 提取关键帧截图（嵌入笔记与 Word/PDF 导出）
+                  </el-button>
+                  <span class="gen-tip">按章节时间戳抽帧，不调用视觉模型</span>
+                </div>
+
                 <div v-if="!quizQuestions.length" class="quiz-entry">
                   <el-button size="small" type="primary" :loading="quizGenerating" @click="generateQuiz">
                     ✨ 生成本课自测题（嵌入各章节，逐题 AI 批改）
@@ -91,6 +100,17 @@
 
                 <div v-for="(ch, ci) in chapters" :key="ci" :id="'chapter-' + ci" class="chapter">
                   <h3 class="chapter-title">{{ ch.title }}</h3>
+                  <div v-if="chapterKeyframes(ci).length" class="chapter-frames">
+                    <el-image
+                      v-for="(k, ki) in chapterKeyframes(ci)"
+                      :key="ki"
+                      :src="keyframeUrl(k)"
+                      :preview-src-list="chapterKeyframes(ci).map(function (x) { return '/api/notes/' + selfNoteId + '/frames/' + x.image })"
+                      :initial-index="ki"
+                      fit="cover"
+                      class="frame-thumb"
+                    />
+                  </div>
                   <div v-for="(p, pi) in ch.points" :key="pi" class="point" :class="{ important: p.important }">
                     <TimeLink v-if="p.time_stamp" :time="p.time_stamp" @jump="jump" />
                     <LatexText class="point-content" :text="p.content" />
@@ -300,16 +320,16 @@
             <div v-for="(m, i) in chatMessages" :key="i" class="chat-msg" :class="m.role">
               <div class="chat-bubble">
                 <template v-if="m.role === 'assistant'">
-                  <template v-for="(part, pi) in parseAssistant(m.content)" :key="pi">
-                    <div v-if="part.type === 'text'" class="chat-text" v-html="part.html"></div>
-                    <MermaidView v-else :code="part.code" compact />
+                  <span v-if="!m.content" class="typing">思考中...</span>
+                  <template v-else>
+                    <template v-for="(part, pi) in parseAssistant(m.content)" :key="pi">
+                      <div v-if="part.type === 'text'" class="chat-text" v-html="part.html"></div>
+                      <MermaidView v-else :code="part.code" compact />
+                    </template>
                   </template>
                 </template>
                 <template v-else>{{ m.content }}</template>
               </div>
-            </div>
-            <div v-if="chatLoading" class="chat-msg assistant">
-              <div class="chat-bubble typing">思考中...</div>
             </div>
           </div>
           <div class="chat-input">
@@ -381,6 +401,10 @@ export default {
       formulaNotes: [],
       formulasLoading: false,
       visionProvider: 'qwen',
+      // 关键帧
+      keyframesList: [],
+      keyframesLoading: false,
+      selfNoteId: 0,
       // 复盘
       reviewData: null,
       reviewLoading: false,
@@ -421,6 +445,7 @@ export default {
   },
   created() {
     this.noteId = Number(this.$route.params.id)
+    this.selfNoteId = this.noteId
     var saved = localStorage.getItem('bililearn-layout')
     if (saved === 'top' || saved === 'split') this.layoutMode = saved
     var w = parseFloat(localStorage.getItem('bililearn-video-width'))
@@ -473,6 +498,7 @@ export default {
       var formulas = data.formulas || {}
       this.formulasList = formulas.formulas || []
       this.formulaNotes = formulas.notes || []
+      this.keyframesList = data.keyframes || []
       this.reviewData = (data.review && data.review.weak_points !== undefined) ? data.review : null
       this.planList = (this.reviewData && this.reviewData.plan) ? this.reviewData.plan : []
       if (data.status === 'done') {
@@ -595,6 +621,24 @@ export default {
         this.quizGenerating = false
       }
     },
+    chapterKeyframes(ci) {
+      return this.keyframesList.filter(function (k) { return k.chapter === ci })
+    },
+    keyframeUrl(k) {
+      return '/api/notes/' + this.noteId + '/frames/' + k.image
+    },
+    async generateKeyframes() {
+      this.keyframesLoading = true
+      try {
+        var res = await api.post('/notes/' + this.noteId + '/keyframes')
+        this.keyframesList = res.keyframes || []
+        ElMessage.success('已提取 ' + this.keyframesList.length + ' 张关键帧')
+      } catch (e) {
+        ElMessage.error(e.message)
+      } finally {
+        this.keyframesLoading = false
+      }
+    },
     async generateFormulas() {
       this.formulasLoading = true
       try {
@@ -671,16 +715,51 @@ export default {
       if (!msg || this.chatLoading) return
       this.chatInput = ''
       this.chatMessages.push({ role: 'user', content: msg })
+      var history = this.chatMessages.slice(-9, -1).map(function (m) {
+        return { role: m.role, content: m.content }
+      })
+      this.chatMessages.push({ role: 'assistant', content: '' })
       this.chatLoading = true
       this.scrollChatBottom()
+      var self = this
       try {
-        var history = this.chatMessages.slice(-9, -1)
-        var res = await api.post('/notes/' + this.noteId + '/chat', { message: msg, history: history })
-        this.chatMessages.push({ role: 'assistant', content: res.reply })
+        var resp = await fetch('/api/notes/' + this.noteId + '/chat/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: msg, history: history })
+        })
+        if (!resp.ok) throw new Error('HTTP ' + resp.status)
+        var reader = resp.body.getReader()
+        var decoder = new TextDecoder('utf-8')
+        var buffer = ''
+        var full = ''
+        while (true) {
+          var chunk = await reader.read()
+          if (chunk.done) break
+          buffer += decoder.decode(chunk.value, { stream: true })
+          var parts = buffer.split('\n\n')
+          buffer = parts.pop()
+          for (var i = 0; i < parts.length; i++) {
+            var line = parts[i].trim()
+            if (!line || line.indexOf('data:') !== 0) continue
+            var payload = null
+            try { payload = JSON.parse(line.slice(5).trim()) } catch (e) { continue }
+            if (payload.error) full = '⚠️ ' + payload.error
+            else if (payload.delta) full += payload.delta
+            self.updateAssistant(full)
+          }
+        }
       } catch (e) {
-        this.chatMessages.push({ role: 'assistant', content: '⚠️ ' + e.message })
+        self.updateAssistant('⚠️ 流式输出失败：' + (e.message || e))
       } finally {
         this.chatLoading = false
+        this.scrollChatBottom()
+      }
+    },
+    updateAssistant(text) {
+      var last = this.chatMessages[this.chatMessages.length - 1]
+      if (last && last.role === 'assistant') {
+        last.content = text
         this.scrollChatBottom()
       }
     },
@@ -806,6 +885,11 @@ html.dark .content-panel::-webkit-scrollbar-thumb { background: #3d4148; }
   font-size: 13px; font-weight: 600; color: #409eff;
   background: #ecf5ff; border-radius: 6px; padding: 6px 10px; margin-bottom: 10px;
 }
+
+/* 关键帧 */
+.chapter-frames { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 10px; }
+.frame-thumb { width: 150px; height: 90px; border-radius: 8px; border: 1px solid #e4e7ed; cursor: pointer; }
+.typing { color: #909399; }
 
 /* 公式板书 */
 .formula-entry { padding: 8px 0; }

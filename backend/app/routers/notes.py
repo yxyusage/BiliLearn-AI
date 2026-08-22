@@ -7,6 +7,7 @@ import traceback
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from ..config import DATA_DIR
@@ -174,6 +175,67 @@ def get_note(note_id: int, db: Session = Depends(get_db)):
     return _note_to_dict(note)
 
 
+@router.post("/{note_id}/keyframes")
+def generate_keyframes(note_id: int, db: Session = Depends(get_db)):
+    """按章节时间戳提取关键帧，嵌入笔记与导出文档。"""
+    from ..services import formulas as formula_service
+    from ..utils.timestamp import hms_to_seconds, seconds_to_hms
+
+    note = db.query(Note).filter(Note.id == note_id).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="笔记不存在")
+    if note.status != "done" or not note.note_json:
+        raise HTTPException(status_code=400, detail="笔记尚未生成完成")
+    try:
+        note_json = json.loads(note.note_json)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail="笔记数据损坏") from exc
+    chapters = note_json.get("chapters") or []
+    picks = []
+    for idx, ch in enumerate(chapters):
+        for pt in (ch.get("points") or []):
+            sec = hms_to_seconds(pt.get("time_stamp") or "")
+            if sec > 0:
+                picks.append((idx, sec))
+                break
+        if len(picks) >= 8:
+            break
+    if not picks:
+        raise HTTPException(status_code=400, detail="笔记中没有可定位的时间戳")
+    frames_dir = DATA_DIR / "notes" / (str(note.id) + "_frames")
+    try:
+        frames = formula_service.extract_frames(
+            note.bvid, note.page, [s for _, s in picks], frames_dir, get_setting(db, "bili_cookie", "")
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail="关键帧提取失败：" + str(exc)) from exc
+    if not frames:
+        raise HTTPException(status_code=500, detail="未能提取到关键帧")
+    keyframes = []
+    for (idx, sec), img in zip(picks, frames):
+        keyframes.append({"chapter": idx, "time_stamp": seconds_to_hms(sec), "image": Path(img).name})
+    note.keyframes = json.dumps(keyframes, ensure_ascii=False)
+    # 重新渲染 Markdown，嵌入关键帧链接
+    words = json.loads(note.words) if note.words else None
+    frames_links = {}
+    for k in keyframes:
+        frames_links.setdefault(k["chapter"], []).append(str(note.id) + "_frames/" + k["image"])
+    markdown = export_service.render_note_markdown(
+        note_json, note.subject, words,
+        meta={
+            "bvid": note.bvid,
+            "page": note.page,
+            "subject_name": SUBJECT_NAMES.get(note.subject, note.subject),
+            "created_at": note.created_at.isoformat() if note.created_at else "",
+        },
+        frames=frames_links,
+    )
+    note.markdown = markdown
+    _save_markdown_file(note.id, note.title, markdown)
+    db.commit()
+    return {"keyframes": keyframes}
+
+
 @router.post("/{note_id}/formulas")
 def generate_formulas(note_id: int, req: FormulaRequest, db: Session = Depends(get_db)):
     """提取板书/课件关键帧，调用视觉大模型识别公式为 LaTeX。"""
@@ -244,6 +306,44 @@ def get_frame(note_id: int, filename: str):
     return FileResponse(str(path), media_type="image/jpeg")
 
 
+@router.post("/{note_id}/chat/stream")
+def note_chat_stream(note_id: int, req: ChatRequest, db: Session = Depends(get_db)):
+    """流式 AI 答疑：SSE 逐字输出。"""
+    note = db.query(Note).filter(Note.id == note_id).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="笔记不存在")
+    if not note.markdown:
+        raise HTTPException(status_code=400, detail="笔记尚未生成完成")
+    llm_cfg = resolve_llm_config(db)
+    if llm_cfg["provider"] != "ollama" and not llm_cfg["api_key"]:
+        raise HTTPException(status_code=400, detail="尚未配置 API Key，请先到「配置」页填写")
+    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"])
+    context = (note.summary + "\n\n" + note.markdown)[:6000]
+    messages = [{"role": "system", "content": CHAT_SYSTEM.replace("{note}", context)}]
+    for m in (req.history or [])[-8:]:
+        if not isinstance(m, dict):
+            continue
+        role = m.get("role")
+        content = str(m.get("content") or "")
+        if role in ("user", "assistant") and content:
+            messages.append({"role": role, "content": content[:2000]})
+    messages.append({"role": "user", "content": (req.message or "")[:2000]})
+
+    def event_stream():
+        try:
+            for delta in llm.chat_stream(messages, temperature=0.4):
+                yield "data: " + json.dumps({"delta": delta}, ensure_ascii=False) + "\n\n"
+        except Exception as exc:  # noqa: BLE001
+            yield "data: " + json.dumps({"error": str(exc)}, ensure_ascii=False) + "\n\n"
+        yield "data: " + json.dumps({"done": True}, ensure_ascii=False) + "\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.post("/{note_id}/chat")
 def note_chat(note_id: int, req: ChatRequest, db: Session = Depends(get_db)):
     note = db.query(Note).filter(Note.id == note_id).first()
@@ -306,6 +406,7 @@ def _note_to_dict(note: Note) -> dict:
         "quizzes": _load(note.quizzes, {}),
         "words": _load(note.words, {}),
         "formulas": _load(note.formulas, {}),
+        "keyframes": _load(note.keyframes, []),
         "review": _load(note.review, {}),
         "created_at": note.created_at.isoformat() if note.created_at else "",
         "updated_at": note.updated_at.isoformat() if note.updated_at else "",

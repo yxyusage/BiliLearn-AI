@@ -18,6 +18,10 @@ class BaseLLM(ABC):
     def chat(self, messages: List[Dict[str, str]], temperature: float = 0.3, **kwargs: Any) -> str:
         """返回纯文本回复。"""
 
+    def chat_stream(self, messages: List[Dict[str, str]], temperature: float = 0.3, **kwargs: Any):
+        """流式输出文本增量（默认不支持，由具体供应商实现）。"""
+        raise NotImplementedError("当前供应商不支持流式输出")
+
     def chat_json(self, messages, temperature=0.2, retries=2, **kwargs) -> Any:
         """要求模型输出 JSON，解析失败时自动重试。"""
         last_err = ""

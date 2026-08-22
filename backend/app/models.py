@@ -28,6 +28,7 @@ class Note(Base):
     quizzes = Column(Text, default="")        # 阶梯自测 JSON
     words = Column(Text, default="")          # 生词 JSON（英语专项）
     formulas = Column(Text, default="")       # 板书公式识别 JSON（数理专项）
+    keyframes = Column(Text, default="")      # 关键帧嵌入 JSON [{chapter, time_stamp, image}]
     review = Column(Text, default="")         # 复盘分析 JSON
     created_at = Column(DateTime, default=_now)
     updated_at = Column(DateTime, default=_now, onupdate=_now)

@@ -9,6 +9,8 @@ yt-dlp>=2024.4.9
 python-multipart>=0.0.9
 reportlab>=4.1
 genanki>=0.13
+python-docx>=1.1
+python-docx>=1.1
 
 # 可选：本地离线语音转写（体积较大，按需安装，需 ffmpeg）
 # faster-whisper>=1.0.3

@@ -9,8 +9,8 @@ from typing import List, Optional
 from ..utils.timestamp import normalize_hms
 
 
-def render_note_markdown(note: dict, subject: str = "general", words: Optional[dict] = None, meta: Optional[dict] = None) -> str:
-    """生成排版美观的笔记型 Markdown 文档。"""
+def render_note_markdown(note: dict, subject: str = "general", words: Optional[dict] = None, meta: Optional[dict] = None, frames: Optional[dict] = None) -> str:
+    """生成排版美观的笔记型 Markdown 文档。frames: {章节索引: [相对图片路径]}"""
     fence = chr(96) * 3
     tick = chr(96)
     title = str(note.get("title") or "课程笔记")
@@ -42,6 +42,10 @@ def render_note_markdown(note: dict, subject: str = "general", words: Optional[d
         lines.append("")
         lines.append("## " + str(idx) + ". " + str(ch.get("title") or "章节"))
         lines.append("")
+        if frames and (idx - 1) in frames:
+            for img in frames[idx - 1]:
+                lines.append("![" + str(img) + "](" + str(img) + ")")
+            lines.append("")
         for p in ch.get("points") or []:
             if not isinstance(p, dict):
                 continue
@@ -140,8 +144,8 @@ def markdown_to_pdf_bytes(markdown: str, title: str) -> bytes:
     return buf.getvalue()
 
 
-def build_note_pdf(note: dict, subject: str = "general", words: Optional[dict] = None, meta: Optional[dict] = None) -> bytes:
-    """基于结构化笔记生成排版良好的 PDF 文档。"""
+def build_note_pdf(note: dict, subject: str = "general", words: Optional[dict] = None, meta: Optional[dict] = None, frames: Optional[dict] = None) -> bytes:
+    """基于结构化笔记生成排版良好的 PDF 文档。frames: {章节索引: [图片路径]}"""
     try:
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4
@@ -149,7 +153,7 @@ def build_note_pdf(note: dict, subject: str = "general", words: Optional[dict] =
         from reportlab.lib.units import cm
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.cidfonts import UnicodeCIDFont
-        from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+        from reportlab.platypus import HRFlowable, Image as RLImage, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
     except ImportError as exc:  # noqa: BLE001
         raise RuntimeError("未安装 reportlab，无法导出 PDF") from exc
 
@@ -201,6 +205,13 @@ def build_note_pdf(note: dict, subject: str = "general", words: Optional[dict] =
     chapters = note.get("chapters") or []
     for idx, ch in enumerate(chapters, start=1):
         story.append(Paragraph(_escape(str(idx) + "、" + str(ch.get("title") or "章节")), styles["h1"]))
+        if frames and (idx - 1) in frames:
+            for img in frames[idx - 1]:
+                try:
+                    story.append(RLImage(img, width=14 * cm))
+                    story.append(Spacer(1, 4))
+                except Exception:
+                    pass
         for p in ch.get("points") or []:
             if not isinstance(p, dict):
                 continue
@@ -253,6 +264,161 @@ def build_note_pdf(note: dict, subject: str = "general", words: Optional[dict] =
 
 def _escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def build_note_docx(note: dict, subject: str = "general", words: Optional[dict] = None, meta: Optional[dict] = None, frames: Optional[dict] = None) -> bytes:
+    """生成排版美观的 Word 笔记（含可选关键帧截图）。frames: {章节索引: [图片路径]}"""
+    try:
+        from docx import Document
+        from docx.oxml.ns import qn
+        from docx.shared import Inches, Pt, RGBColor
+    except ImportError as exc:  # noqa: BLE001
+        raise RuntimeError("未安装 python-docx，无法导出 Word") from exc
+
+    C_MAIN = RGBColor(0x1F, 0x2D, 0x3D)
+    C_BLUE = RGBColor(0x33, 0x70, 0xFF)
+    C_RED = RGBColor(0xF5, 0x6C, 0x6C)
+    C_GRAY = RGBColor(0x90, 0x99, 0x99)
+
+    def _set_font(obj, size=None, bold=None, color=None, name="微软雅黑"):
+        if size is not None:
+            obj.font.size = Pt(size)
+        if bold is not None:
+            obj.font.bold = bold
+        if color is not None:
+            obj.font.color.rgb = color
+        obj.font.name = name
+        try:
+            rpr = obj._element.get_or_add_rPr()
+            rpr.get_or_add_rFonts().set(qn("w:eastAsia"), name)
+        except Exception:
+            pass
+
+    doc = Document()
+    try:
+        _set_font(doc.styles["Normal"], size=10.5)
+        for sname in ("Title", "Heading 1", "Heading 2", "Heading 3"):
+            try:
+                _set_font(doc.styles[sname], name="微软雅黑")
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    title = str(note.get("title") or "课程笔记")
+    p = doc.add_paragraph()
+    _set_font(p.add_run(title), size=20, bold=True, color=C_MAIN)
+    summary = str(note.get("summary") or "").strip()
+    if summary:
+        p = doc.add_paragraph()
+        _set_font(p.add_run(summary), size=10.5, color=RGBColor(0x60, 0x62, 0x66))
+        p.paragraph_format.space_after = Pt(6)
+    meta = meta or {}
+    meta_parts = []
+    if meta.get("bvid"):
+        meta_parts.append("视频：B站 " + str(meta["bvid"]) + " P" + str(meta.get("page") or 1))
+    if meta.get("subject_name"):
+        meta_parts.append("学科：" + str(meta["subject_name"]))
+    if meta.get("created_at"):
+        meta_parts.append("生成时间：" + str(meta["created_at"])[:19].replace("T", " "))
+    if meta_parts:
+        p = doc.add_paragraph()
+        _set_font(p.add_run(" ｜ ".join(meta_parts)), size=9, color=C_GRAY)
+
+    chapters = note.get("chapters") or []
+    for ci, ch in enumerate(chapters, start=1):
+        p = doc.add_paragraph()
+        p.paragraph_format.space_before = Pt(12)
+        _set_font(p.add_run(str(ci) + "、" + str(ch.get("title") or "章节")), size=14, bold=True, color=C_MAIN)
+        if frames and ci - 1 in frames:
+            for img in frames[ci - 1]:
+                try:
+                    doc.add_picture(img, width=Inches(5.6))
+                except Exception:
+                    pass
+        for pt in ch.get("points") or []:
+            if not isinstance(pt, dict):
+                continue
+            content = str(pt.get("content") or "").strip()
+            if not content:
+                continue
+            p = doc.add_paragraph(style="List Bullet")
+            ts = str(pt.get("time_stamp") or "")
+            if ts:
+                _set_font(p.add_run("[" + ts + "] "), size=9.5, bold=True, color=C_BLUE)
+            _set_font(p.add_run(content), size=10.5)
+            if pt.get("important"):
+                _set_font(p.add_run(" 【重点】"), size=10.5, bold=True, color=C_RED)
+
+    word_list = (words or {}).get("words") or []
+    if word_list:
+        p = doc.add_paragraph()
+        p.paragraph_format.space_before = Pt(12)
+        _set_font(p.add_run("生词本"), size=14, bold=True, color=C_MAIN)
+        table = doc.add_table(rows=1, cols=5)
+        try:
+            table.style = "Table Grid"
+        except Exception:
+            pass
+        for i, h in enumerate(["单词", "音标", "释义", "原句", "时间戳"]):
+            _set_font(table.rows[0].cells[i].paragraphs[0].add_run(h), size=10, bold=True)
+        for w in word_list[:50]:
+            cells = table.add_row().cells
+            for i, key in enumerate(["word", "phonetic", "meaning", "sentence", "time_stamp"]):
+                _set_font(cells[i].paragraphs[0].add_run(str(w.get(key) or "")), size=9.5)
+
+    pron = (words or {}).get("pronunciations") or []
+    if pron:
+        p = doc.add_paragraph()
+        p.paragraph_format.space_before = Pt(10)
+        _set_font(p.add_run("语音现象标注"), size=14, bold=True, color=C_MAIN)
+        for it in pron:
+            p = doc.add_paragraph(style="List Bullet")
+            _set_font(p.add_run("【" + str(it.get("phenomenon") or "") + "】" + str(it.get("sentence") or "")), size=10.5)
+            if it.get("time_stamp"):
+                _set_font(p.add_run("（" + str(it["time_stamp"]) + "）"), size=9.5, color=C_GRAY)
+
+    buf = BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+def build_note_xmind(note: dict) -> bytes:
+    """生成 .xmind 思维导图文件（XMind 2020+ 兼容 zip 格式）。"""
+    import json
+    import uuid
+    import zipfile
+
+    def _node(title, children=None):
+        n = {"id": "n" + uuid.uuid4().hex[:12], "class": "topic", "title": str(title)}
+        if children:
+            n["children"] = {"attached": children}
+        return n
+
+    root_children = []
+    for ch in note.get("chapters") or []:
+        pts = (ch.get("points") or [])[:8]
+        children = []
+        for p in pts:
+            label = str(p.get("content") or "")[:80]
+            ts = str(p.get("time_stamp") or "")
+            if ts:
+                label += "  " + ts
+            children.append(_node(label))
+        root_children.append(_node(ch.get("title") or "章节", children))
+    root = _node(note.get("title") or "课程笔记", root_children)
+    sheet = {
+        "id": "s" + uuid.uuid4().hex[:12],
+        "class": "sheet",
+        "title": "BiliLearn 笔记",
+        "rootTopic": root,
+    }
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("content.json", json.dumps([sheet], ensure_ascii=False))
+        z.writestr("manifest.json", json.dumps({"file-entries": {"content.json": {}, "metadata.json": {}}}))
+        z.writestr("metadata.json", json.dumps({"creator": {"name": "BiliLearn-AI", "version": "1.2"}}))
+    return buf.getvalue()
 
 
 def build_anki_apkg(words: List[dict], deck_name: str = "BiliLearn 生词本") -> bytes:
