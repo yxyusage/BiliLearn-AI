@@ -9,6 +9,7 @@ from typing import List, Optional
 
 import yt_dlp
 
+from .bilibili import _SILENT_LOGGER
 from .netutil import clear_proxy_env, has_proxy_env, restore_proxy_env
 
 
@@ -24,6 +25,7 @@ def transcribe(bvid: str, page: int = 1, model_name: Optional[str] = None, langu
         ydl_opts = {
             "quiet": True,
             "no_warnings": True,
+            "logger": _SILENT_LOGGER,
             "noplaylist": True,  # 关键：只处理当前分P，避免合集整单下载
             # 直接下载音轨（DASH m4a 单流），无需 ffmpeg 合并/转码
             "format": "bestaudio[ext=m4a]/bestaudio/best",

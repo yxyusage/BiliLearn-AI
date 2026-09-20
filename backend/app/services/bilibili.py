@@ -3,6 +3,7 @@ import json
 import os
 import re
 import tempfile
+import time
 from pathlib import Path
 from typing import List, Tuple
 
@@ -24,6 +25,34 @@ def _make_headers(cookie: str = "") -> dict:
     if cookie:
         headers["Cookie"] = cookie
     return headers
+
+
+class _SilentLogger:
+    """yt-dlp 日志静默器（防御 Broken pipe）。
+
+    yt-dlp 即使设置了 quiet/no_warnings，仍会在某些路径直接往 stdout/stderr
+    写日志。当服务进程的输出管道已被关闭时（例如启动它的终端已退出、或进程
+    被 nohup/后台任务托管后父管道消失），这些写入会抛
+    BrokenPipeError: [Errno 32] Broken pipe，让整个视频解析失败。
+
+    挂上这个 logger 后，yt-dlp 的所有日志都被吞掉，不再触碰文件描述符，
+    从根本上避免该类故障。
+    """
+
+    def debug(self, msg):
+        pass
+
+    def info(self, msg):
+        pass
+
+    def warning(self, msg):
+        pass
+
+    def error(self, msg):
+        pass
+
+
+_SILENT_LOGGER = _SilentLogger()
 
 
 class VideoError(Exception):
@@ -52,6 +81,7 @@ def parse_video(url: str, cookie: str = "") -> dict:
     ydl_opts = {
         "quiet": True,
         "no_warnings": True,
+        "logger": _SILENT_LOGGER,
         "skip_download": True,
         "extract_flat": True,
         "http_headers": _make_headers(cookie),
@@ -94,12 +124,23 @@ def parse_video(url: str, cookie: str = "") -> dict:
 
 def get_subtitles(bvid: str, page: int = 1, cookie: str = "") -> Tuple[List[dict], str]:
     """优先抓取 B站官方 CC 字幕（UP 主上传/AI 字幕），返回 (字幕列表, 来源说明)。"""
+    # 方式0（优先）：B站官方接口。
+    # yt-dlp 的 B站 解析器拿不到 AI 字幕（它们托管在 aisubtitle.hdslb.com，
+    # 必须走 player/v2 接口 + 登录态），所以这里单独实现一条通道。
+    try:
+        items = _get_subtitles_via_api(bvid, page, cookie)
+        if items:
+            return _dedupe(items), "官方字幕(AI/CC)"
+    except Exception:
+        pass
+
     url = "https://www.bilibili.com/video/" + bvid
     if page and page > 1:
         url += "?p=" + str(page)
     base_opts = {
         "quiet": True,
         "no_warnings": True,
+        "logger": _SILENT_LOGGER,
         "skip_download": True,
         "noplaylist": True,
         "writesubtitles": True,
@@ -141,6 +182,124 @@ def get_subtitles(bvid: str, page: int = 1, cookie: str = "") -> Tuple[List[dict
         else:
             break
     return [], ""
+
+
+def _subtitle_url_matches(sub_url: str, aid, cid) -> bool:
+    """校验字幕文件 URL 是否真的属于当前视频。
+
+    B站的 AI 字幕文件路径形如：
+
+        //aisubtitle.hdslb.com/bfs/ai_subtitle/prod/{aid}{cid}{随机后缀}?auth_key=...
+
+    实测发现 player/v2 有时会返回**指向其它视频**的字幕 URL（内容与当前视频
+    完全无关，例如语文课返回了手机评测、韩综的字幕），必须靠路径前缀甄别：
+    只有以 "{aid}{cid}" 开头的才是当前视频的字幕。
+    """
+    if not sub_url:
+        return False
+    match = re.search(r"/prod/([0-9a-f]+)", sub_url)
+    if not match:
+        return False
+    token = match.group(1)
+    if aid is not None and cid is not None:
+        # 正常路径：路径以 "{aid}{cid}" 开头
+        return token.startswith(str(aid) + str(cid))
+    if cid is not None:
+        # 降级路径（view 接口未返回 aid 时）：cid 出现在路径中即可
+        return str(cid) in token
+    return False
+
+
+def _get_subtitles_via_api(
+    bvid: str, page: int = 1, cookie: str = "", max_attempts: int = 10
+) -> List[dict]:
+    """直接调用 B站官方接口取字幕（这是拿到 AI 字幕的唯一途径）。
+
+    流程：web-interface/view 取 aid/cid → player/v2 取字幕列表 → 下载字幕 JSON。
+    player/v2 需要登录态（Cookie 里必须有 SESSDATA），未登录时字幕列表为空。
+
+    ⚠ 两个必须处理的接口缺陷：
+      1. player/v2 有相当高的概率不返回 URL（返回空字符串）；
+      2. 更危险的是，它有时会返回**别的视频**的字幕 URL——文件真实存在、
+         能正常下载，但内容与当前视频毫无关系。实测语文课视频拿到了手机
+         评测、时事行情、韩综等毫不相干的内容。
+
+    因此这里对每个候选 URL 都做「路径必须以 {aid}{cid} 开头」的硬校验，
+    校验不通过就重试；全部尝试完毕仍拿不到合法 URL 时返回空列表，
+    交由上层按「无字幕」处理——宁可不生成，也不能生成内容错误的笔记。
+    """
+    headers = _make_headers(cookie)
+
+    # 1) 取 aid / cid
+    resp = httpx.get(
+        "https://api.bilibili.com/x/web-interface/view",
+        params={"bvid": bvid},
+        headers=headers,
+        timeout=30,
+        follow_redirects=True,
+    )
+    resp.raise_for_status()
+    payload = resp.json()
+    if payload.get("code") != 0:
+        return []
+    data = payload.get("data") or {}
+
+    cid = None
+    wanted = int(page or 1)
+    for item in data.get("pages") or []:
+        if int(item.get("page") or 0) == wanted:
+            cid = item.get("cid")
+            break
+    if cid is None:
+        cid = data.get("cid")
+    if cid is None:
+        return []
+    aid = data.get("aid")
+
+    def _rank(meta: dict) -> int:
+        lang = meta.get("lan")
+        return _LANG_PREFS.index(lang) if lang in _LANG_PREFS else len(_LANG_PREFS)
+
+    for attempt in range(max(1, max_attempts)):
+        # 2) 取字幕列表
+        try:
+            resp2 = httpx.get(
+                "https://api.bilibili.com/x/player/v2",
+                params={"bvid": bvid, "cid": cid},
+                headers=headers,
+                timeout=30,
+                follow_redirects=True,
+            )
+            resp2.raise_for_status()
+            payload2 = resp2.json()
+        except Exception:
+            payload2 = {}
+        metas = ((payload2.get("data") or {}).get("subtitle") or {}).get("subtitles") or []
+
+        # 3) 按语言偏好排序，只接受能通过归属校验的 URL
+        for meta in sorted(metas, key=_rank):
+            sub_url = (meta.get("subtitle_url") or "").strip()
+            if not _subtitle_url_matches(sub_url, aid, cid):
+                continue
+            if sub_url.startswith("//"):
+                sub_url = "https:" + sub_url
+            elif sub_url.startswith("/"):
+                sub_url = "https://aisubtitle.hdslb.com" + sub_url
+            elif not sub_url.startswith("http"):
+                sub_url = "https://" + sub_url
+            try:
+                resp3 = httpx.get(sub_url, headers=headers, timeout=60, follow_redirects=True)
+                resp3.raise_for_status()
+                items = _parse_json_sub(resp3.json())
+            except Exception:
+                continue
+            if items:
+                return items
+
+        if attempt < max_attempts - 1:
+            time.sleep(0.5)
+
+    return []
 
 
 def _subs_from_info(info: dict) -> List[dict]:
