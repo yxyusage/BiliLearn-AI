@@ -72,22 +72,96 @@ def normalize_note(note: dict) -> dict:
     }
 
 
+def _assemble_chapters(plan, sections: List[dict]) -> List[dict]:
+    """按模型给出的章节划分（小节编号）拼装章节，正文一律取原始小节内容。
+
+    知识点正文与时间戳不经过模型二次转写，因此不会被改写或截断。
+    """
+    total = len(sections)
+    used = set()
+    out: List[dict] = []
+    for ch in plan or []:
+        if not isinstance(ch, dict):
+            continue
+        title = str(ch.get("title") or "").strip() or "未命名章节"
+        idxs = ch.get("sections", ch.get("indexes"))
+        if isinstance(idxs, (int, float)):
+            idxs = [idxs]
+        if not isinstance(idxs, list):
+            continue
+        points: List[dict] = []
+        for raw in idxs:
+            try:
+                n = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if n < 1 or n > total or n in used:
+                continue
+            used.add(n)
+            points.extend(sections[n - 1].get("points") or [])
+        if points:
+            out.append({"title": title, "points": points})
+
+    # 兜底：模型漏掉或编号非法的小节，按原顺序补进来，确保知识点不丢失
+    if total and len(used) < total:
+        leftovers: List[dict] = []
+        for i, sec in enumerate(sections, start=1):
+            if i not in used:
+                leftovers.extend(sec.get("points") or [])
+        if leftovers:
+            out.append({"title": "补充要点", "points": leftovers})
+    return out
+
+
 def generate_note(subtitles: List[dict], subject: str, llm: BaseLLM, video_title: str = "") -> dict:
-    """map-reduce：分段生成小节笔记，再全局汇总为最终笔记。"""
+    """map-reduce：分段生成小节笔记，再全局汇总为最终笔记。
+
+    注意：汇总（reduce）阶段**只让模型输出章节划分方案**（标题/概述/章节编号归属/脑图），
+    知识点正文由程序按编号搬运。原因是模型输出 token 上限（DeepSeek 为 8192）远小于
+    输入上限，若要求模型把全部知识点原样重写一遍，长视频必然超出上限被截断，
+    导致返回的 JSON 不完整而解析失败。
+    """
     if not subtitles:
         raise ValueError("字幕为空，无法生成笔记")
     chunks = split_subtitles(subtitles)
     total = len(chunks)
-    section_jsons = []
+
+    # ── map：逐段生成小节笔记 ──
+    sections: List[dict] = []
     for idx, chunk in enumerate(chunks, start=1):
         data = llm.chat_json(chunk_prompt(subject, build_transcript(chunk), idx, total))
         if isinstance(data, list):
             data = {"sections": data}
         if not isinstance(data, dict):
             data = {}
-        section_jsons.append(data)
-    note = llm.chat_json(reduce_prompt(subject, json.dumps(section_jsons, ensure_ascii=False), video_title))
-    return normalize_note(note)
+        for sec in data.get("sections") or []:
+            if isinstance(sec, dict) and (sec.get("points") or []):
+                sections.append(sec)
+
+    if not sections:
+        raise ValueError("模型未能生成任何小节内容")
+
+    # ── reduce：只生成目录框架，正文由 _assemble_chapters 拼装 ──
+    indexed = [
+        {
+            "i": i,
+            "title": str(sec.get("title") or "").strip(),
+            "points": sec.get("points") or [],
+        }
+        for i, sec in enumerate(sections, start=1)
+    ]
+    reduced = llm.chat_json(
+        reduce_prompt(subject, json.dumps(indexed, ensure_ascii=False), video_title)
+    )
+    if not isinstance(reduced, dict):
+        reduced = {}
+
+    return normalize_note({
+        "title": reduced.get("title"),
+        "summary": reduced.get("summary"),
+        "chapters": _assemble_chapters(reduced.get("chapters"), sections),
+        "mindmap": reduced.get("mindmap"),
+    })
 
 
 def generate_english_extras(subtitles: List[dict], note: dict, llm: BaseLLM) -> dict:

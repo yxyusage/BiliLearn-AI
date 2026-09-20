@@ -48,15 +48,17 @@ def chunk_prompt(subject: str, transcript: str, chunk_no: int, total: int):
 def reduce_prompt(subject: str, section_summaries: str, video_title: str):
     user = (
         "课程《" + str(video_title or "未命名课程") + "》（学科：" + _subject(subject)
-        + "）已被分成若干段整理，下面是各段的小节笔记 JSON：\n" + section_summaries + "\n\n"
-        "请汇总生成整节课的最终笔记，只输出 JSON：\n"
+        + "）已被分成若干段整理，下面是全部小节的 JSON（每项含编号 i、小节标题 title 和知识点 points）：\n"
+        + section_summaries + "\n\n"
+        "请为整节课生成「目录与框架」，只输出 JSON：\n"
         '{"title":"笔记标题","summary":"3到5句内容概述",'
-        '"chapters":[{"title":"章节标题","points":[{"content":"知识点","time_stamp":"HH:MM:SS","important":true}]}],'
+        '"chapters":[{"title":"章节标题","sections":[1,2]}],'
         '"mindmap":["graph TD","  t_000137[\"知识点短语\"] --> t_000156[\"知识点短语\"]"]}\n'
         "要求：\n"
-        "1. 合并相同主题的小节，按学习逻辑重排章节顺序；\n"
-        "2. 完整保留每个知识点的 time_stamp（HH:MM:SS），禁止编造或删除；\n"
-        "3. 笔记组织方式：" + NOTE_STYLES.get(subject, NOTE_STYLES["general"]) + "；\n"
+        "1. chapters[].sections 是「小节编号」数组，编号即输入 JSON 里的 i；"
+        "每个小节必须且只能归属到一个章节，不允许遗漏、重复或编造编号；\n"
+        "2. 合并相同主题的小节，按学习逻辑重排章节顺序，并为每个章节起一个概括性标题；\n"
+        "3. 你不需要输出知识点正文——正文由程序按编号自动拼装，你只负责章节划分与命名；\n"
         "4. mindmap 是字符串数组，每行一条 Mermaid flowchart 代码（第一行 graph TD），用箭头 --> 把 10-20 个节点串联成树状知识框架；\n"
         "5. 每个节点 id 必须是 t_ 加该知识点真实字幕时间的 HHMMSS 六位数字（如 t_000137），"
         "节点显示文字用方括号括起的简短中文短语（如 t_000137[\"电子位置不确定\"]），不要输出注释。"
