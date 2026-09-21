@@ -1307,7 +1307,7 @@ export default {
 .video-panel { min-width: 0; }
 .layout.split .video-panel {
   flex-shrink: 0; padding-right: 10px;
-  height: 100%; overflow-y: auto;
+  align-self: flex-start; overflow-y: auto;
 }
 .layout.top .video-panel {
   position: sticky; top: 0; z-index: 20; background: var(--c-bg);
@@ -1387,8 +1387,11 @@ html.dark .diag-head { color: var(--c-primary); }
 /* 笔记：横向吸顶目录 + 正文占满 */
 .note-flex { display: block; }
 .note-main, .diagnosis-card, .intro-collapse, .quiz-entry { margin-left: 0; }
+/* tab 栏与目录条一起吸顶 */
+.tabs-card { position: sticky; top: 0; z-index: 25; }
+:deep(.el-tabs__content) { overflow: visible; }
 .toc-bar {
-  position: sticky; top: 0; z-index: 30;
+  position: sticky; top: 46px; z-index: 24;
   display: flex; align-items: center; gap: 8px;
   padding: 8px 12px; margin-bottom: 14px;
   background: var(--c-bg-elev); border: 1px solid var(--c-border-light);
