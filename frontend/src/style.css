@@ -1,42 +1,93 @@
 * { box-sizing: border-box; }
+
+/* ===== 设计 Token：墨青学术风（浅色·暖纸） ===== */
 :root {
-  --el-color-primary: #3370ff;
-  --el-color-primary-light-3: #6a97ff;
-  --el-color-primary-light-5: #9dbdff;
-  --el-color-primary-light-7: #cfe0ff;
-  --el-color-primary-light-8: #e2ecff;
-  --el-color-primary-light-9: #f0f5ff;
-  --el-color-primary-dark-2: #2a5ce0;
+  /* Element Plus 主色（墨青 teal） */
+  --el-color-primary: #0d7e70;
+  --el-color-primary-light-3: #56a59b;
+  --el-color-primary-light-5: #86bfb8;
+  --el-color-primary-light-7: #b6d8d3;
+  --el-color-primary-light-8: #cee2e2;
+  --el-color-primary-light-9: #e6f2f0;
+  --el-color-primary-dark-2: #0a655a;
+  --el-color-success: #2f8f5b;
+  --el-color-warning: #b45309;
+  --el-color-danger: #c2413d;
   --el-border-radius-base: 10px;
   --el-border-radius-small: 8px;
+
+  /* 语义色板 */
+  --c-primary: #0d7e70;
+  --c-primary-hover: #0f8c7d;
+  --c-primary-active: #0b665b;
+  --c-primary-soft: #e6f4f1;
+  --c-primary-border: #b7ded7;
+
+  --c-accent: #b45309;
+  --c-accent-soft: #fbf3e2;
+  --c-accent-border: #eed9b4;
+
+  --c-danger: #c2413d;
+  --c-danger-soft: #f9eceb;
+  --c-success: #2f8f5b;
+  --c-success-soft: #e7f4ec;
+
+  /* 中性色 */
+  --c-bg: #f6f5f1;
+  --c-bg-elev: #ffffff;
+  --c-bg-soft: #f1f0eb;
+  --c-border: #e4e2da;
+  --c-border-light: #edebe4;
+  --c-text: #1e272b;
+  --c-text-2: #556066;
+  --c-text-3: #8a9296;
+
+  /* 小节类型徽标 */
+  --c-badge-definition: #1d4ed8;       --c-badge-definition-soft: #e8effd; --c-badge-definition-border: #c6d8f8;
+  --c-badge-concept: #0d7e70;          --c-badge-concept-soft: #e6f4f1;    --c-badge-concept-border: #b7ded7;
+  --c-badge-derivation: #6d28d9;       --c-badge-derivation-soft: #f1ebfd; --c-badge-derivation-border: #d8c8f6;
+  --c-badge-example: #b45309;          --c-badge-example-soft: #fbf3e2;    --c-badge-example-border: #eed9b4;
+  --c-badge-code: #334155;             --c-badge-code-soft: #eef1f5;       --c-badge-code-border: #d3dae3;
+  --c-badge-comparison: #0e7490;       --c-badge-comparison-soft: #e4f4f8; --c-badge-comparison-border: #b9dee8;
+  --c-badge-conclusion: #047857;       --c-badge-conclusion-soft: #e3f5ee; --c-badge-conclusion-border: #b8e4d5;
+  --c-badge-keypoints: #be123c;        --c-badge-keypoints-soft: #fce9ee;  --c-badge-keypoints-border: #f4c8d3;
+
+  /* 代码块（两模式均用深色） */
+  --c-code-bg: #16202a;
+  --c-code-text: #dce6ec;
+  --c-shadow-card: 0 1px 2px rgba(23, 32, 38, .05);
+  --c-shadow-hover: 0 10px 28px rgba(23, 32, 38, .09);
 }
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  background: #f2f4f8;
+  background: var(--c-bg);
+  color: var(--c-text);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 #app { min-height: 100vh; }
-::selection { background: rgba(51, 112, 255, .18); }
+::selection { background: color-mix(in srgb, var(--c-primary) 18%, transparent); }
 
 /* 卡片体系 */
 .el-card {
   border-radius: 14px;
-  border: 1px solid #e8ecf3;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+  border: 1px solid var(--c-border-light);
+  background: var(--c-bg-elev);
+  box-shadow: var(--c-shadow-card);
   transition: box-shadow .25s ease, transform .25s ease, border-color .25s ease, background-color .25s ease;
 }
 .lift-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 10px 28px rgba(16, 24, 40, .08);
-  border-color: #dbe4f5;
+  box-shadow: var(--c-shadow-hover);
+  border-color: var(--c-primary-border);
 }
 
 /* 按钮体系 */
 .el-button { border-radius: 8px; font-weight: 500; transition: transform .18s ease, box-shadow .18s ease, background-color .18s ease, color .18s ease; }
 .el-button:not(.is-text):not(.is-link):not(.is-circle):hover { transform: translateY(-1px); }
-.el-button--primary:not(.is-plain):hover { box-shadow: 0 6px 16px rgba(51, 112, 255, .28); }
+.el-button--primary:not(.is-plain):hover { box-shadow: 0 6px 16px color-mix(in srgb, var(--c-primary) 26%, transparent); }
 
 /* 主题切换：圆形蔓延动画（View Transitions） */
 ::view-transition-old(root),
@@ -52,37 +103,105 @@ body {
 }
 
 .ts-link { font-size: 12px; margin-right: 6px; }
-.err-text { color: #f56c6c; white-space: pre-wrap; }
-.gen-tip { color: #909399; font-size: 12px; margin-left: 10px; }
+.err-text { color: var(--c-danger); white-space: pre-wrap; }
+.gen-tip { color: var(--c-text-3); font-size: 12px; margin-left: 10px; }
 .summary-box {
-  background: #ecf5ff; border-left: 4px solid #409eff;
-  padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; color: #303133;
+  background: var(--c-primary-soft); border-left: 4px solid var(--c-primary);
+  padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; color: var(--c-text);
 }
 .chapter { margin-bottom: 18px; }
-.chapter-title { margin: 8px 0; font-size: 16px; border-left: 3px solid #409eff; padding-left: 8px; }
-.point { display: flex; align-items: flex-start; gap: 6px; padding: 6px 4px; border-bottom: 1px dashed #ebeef5; }
-.point.important { background: #fdf6ec; }
-.point-content { flex: 1; line-height: 1.7; }
+.chapter-title { margin: 8px 0; font-size: 16px; border-left: 3px solid var(--c-primary); padding-left: 8px; }
 
-/* ===== 深色模式 ===== */
-html.dark body { background: #0f1114; color: #cfd3dc; }
-html.dark .summary-box { background: #1d2a3a; border-left-color: #409eff; color: #cfd3dc; }
-html.dark .chapter-quiz-head { background: #1d2a3a; }
-html.dark .point.important { background: #2b2416; }
-html.dark .point { border-bottom-color: #2c2f36; }
-html.dark .wrong-item { background: #2b1d1d; border-left-color: #f56c6c; }
-html.dark .time-link { background: #1d2a3a; border-color: #3a5a7a; color: #79bbff; }
-html.dark .time-link:hover { background: #409eff; color: #fff; }
-html.dark .split-divider::before { background: #3d4148; }
-html.dark .divider-dot { background: #1d1e1f; border-color: #3d4148; color: #909399; }
-html.dark .q-feedback.ok { background: #1d2b22; border-color: #2f5e3f; }
-html.dark .q-feedback.no { background: #2b1d1d; border-color: #5e2f2f; }
-html.dark .mermaid-view { background: #14171c; border-color: #2c2f36; }
-html.dark .chat-msg.assistant .chat-bubble { background: #26292e; color: #cfd3dc; }
-html.dark .layout.top .video-panel { background: #0f1114; }
-html.dark .recent-item:hover { background: #1d1e1f; }
-html.dark .toolbar { background: #1d1e1f; border-color: #2c2f36; }
-html.dark .formula-card { background: #14171c; border-color: #2c2f36; }
-html.dark .formula-latex { color: #e5eaf3; }
-html.dark .formula-desc { color: #a3a6ad; }
-html.dark .frame-card { border-color: #2c2f36; }
+/* ===== 深色模式：青墨 ===== */
+html.dark {
+  --el-color-primary: #2fbfae;
+  --el-color-primary-light-3: #5ccfbf;
+  --el-color-primary-light-5: #82dccf;
+  --el-color-primary-light-7: #2a4a46;
+  --el-color-primary-light-8: #233c39;
+  --el-color-primary-light-9: #1c312f;
+  --el-color-primary-dark-2: #54cdbf;
+  --el-color-success: #4caf7d;
+  --el-color-warning: #e8a340;
+  --el-color-danger: #e06a65;
+
+  --c-primary: #2fbfae;
+  --c-primary-hover: #44cebd;
+  --c-primary-active: #28a899;
+  --c-primary-soft: rgba(47, 191, 174, .13);
+  --c-primary-border: rgba(47, 191, 174, .32);
+
+  --c-accent: #e8a340;
+  --c-accent-soft: rgba(232, 163, 64, .12);
+  --c-accent-border: rgba(232, 163, 64, .3);
+
+  --c-danger: #e06a65;
+  --c-danger-soft: rgba(224, 106, 101, .13);
+  --c-success: #4caf7d;
+  --c-success-soft: rgba(76, 175, 125, .13);
+
+  --c-bg: #0d1416;
+  --c-bg-elev: #141d20;
+  --c-bg-soft: #1b2529;
+  --c-border: #28343a;
+  --c-border-light: #222d31;
+  --c-text: #e2e9e8;
+  --c-text-2: #9aa7a6;
+  --c-text-3: #6e7b7b;
+
+  --c-badge-definition: #8fb6ff; --c-badge-definition-soft: rgba(96,150,255,.16);  --c-badge-definition-border: rgba(96,150,255,.3);
+  --c-badge-concept: #5fcfc0;    --c-badge-concept-soft: rgba(47,191,174,.14);    --c-badge-concept-border: rgba(47,191,174,.3);
+  --c-badge-derivation: #c0a6ff; --c-badge-derivation-soft: rgba(167,130,255,.17);--c-badge-derivation-border: rgba(167,130,255,.32);
+  --c-badge-example: #e8a340;    --c-badge-example-soft: rgba(232,163,64,.15);    --c-badge-example-border: rgba(232,163,64,.3);
+  --c-badge-code: #b0bcc9;       --c-badge-code-soft: rgba(160,174,192,.15);      --c-badge-code-border: rgba(160,174,192,.3);
+  --c-badge-comparison: #5cc6e4; --c-badge-comparison-soft: rgba(56,189,220,.15); --c-badge-comparison-border: rgba(56,189,220,.3);
+  --c-badge-conclusion: #5fcfa3; --c-badge-conclusion-soft: rgba(60,190,140,.15);  --c-badge-conclusion-border: rgba(60,190,140,.3);
+  --c-badge-keypoints: #f0809c;  --c-badge-keypoints-soft: rgba(240,110,140,.15); --c-badge-keypoints-border: rgba(240,110,140,.3);
+
+  --c-code-bg: #0b1117;
+  --c-code-text: #dce6ec;
+  --c-shadow-card: 0 1px 2px rgba(0, 0, 0, .3);
+  --c-shadow-hover: 0 10px 28px rgba(0, 0, 0, .45);
+}
+
+html.dark body { background: var(--c-bg); color: var(--c-text); }
+html.dark .summary-box { background: var(--c-primary-soft); border-left-color: var(--c-primary); color: var(--c-text); }
+html.dark .chapter-quiz-head { background: var(--c-primary-soft); color: var(--c-primary); }
+html.dark .wrong-item { background: var(--c-danger-soft); border-left-color: var(--c-danger); }
+html.dark .mermaid-view { background: var(--c-bg-elev); border-color: var(--c-border); }
+html.dark .chat-msg.assistant .chat-bubble { background: var(--c-bg-soft); color: var(--c-text); }
+html.dark .layout.top .video-panel { background: var(--c-bg); }
+html.dark .recent-item:hover { background: var(--c-bg-soft); }
+html.dark .toolbar { background: var(--c-bg-elev); border-color: var(--c-border); }
+html.dark .formula-card { background: var(--c-bg-soft); border-color: var(--c-border); }
+html.dark .formula-latex { color: var(--c-text); }
+html.dark .formula-desc { color: var(--c-text-2); }
+html.dark .frame-card { border-color: var(--c-border); }
+html.dark .time-link { background: var(--c-primary-soft); border-color: var(--c-primary-border); color: var(--c-primary); }
+html.dark .time-link:hover { background: var(--c-primary); color: #08231f; }
+html.dark .split-divider::before { background: var(--c-border); }
+html.dark .divider-dot { background: var(--c-bg-elev); border-color: var(--c-border); color: var(--c-text-3); }
+html.dark .q-feedback.ok { background: var(--c-success-soft); border-color: var(--c-success); }
+html.dark .q-feedback.no { background: var(--c-danger-soft); border-color: var(--c-danger); }
+
+/* ===== 公式渲染失败兜底（KaTeX 解析不了时显示原文，而不是红色报错） ===== */
+.latex-fail {
+  background: var(--c-accent-soft); color: var(--c-accent); border-radius: 4px;
+  padding: 0 5px; font-family: Consolas, Monaco, monospace; font-size: .92em;
+}
+.latex-fail-block { display: block; padding: 8px 10px; margin: 6px 0; white-space: pre-wrap; overflow-x: auto; }
+
+/* ===== 轻量 Markdown（答疑/解析中的代码块与列表） ===== */
+.md-code-block {
+  background: var(--c-bg-soft); border: 1px solid var(--c-border); border-radius: 6px;
+  padding: 10px 12px; overflow-x: auto; margin: 8px 0; font-size: 13px; line-height: 1.6;
+}
+.md-code-block code { background: none; padding: 0; }
+.chat-text ul, .chat-text ol { margin: 6px 0; padding-left: 22px; }
+.chat-text li { margin: 3px 0; }
+.chat-text .md-code-block { white-space: pre; }
+.chat-text code {
+  background: color-mix(in srgb, var(--c-primary) 10%, transparent); border-radius: 4px; padding: 1px 5px;
+  font-family: Consolas, Monaco, monospace; font-size: .92em; color: var(--c-primary-active);
+}
+html.dark .chat-text code { background: color-mix(in srgb, var(--c-primary) 16%, transparent); color: var(--c-primary); }

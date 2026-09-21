@@ -1,9 +1,46 @@
 <template>
   <div class="config-page">
     <el-card shadow="never">
-      <h2>模型配置</h2>
-      <p class="tip">密钥仅保存在本地 SQLite 数据库（backend/data 目录），不会上传到任何服务器。</p>
-      <el-form label-width="140px" style="max-width: 680px">
+      <h2>⚙️ 设置</h2>
+      <p class="tip">模型密钥与偏好仅保存在本地 SQLite 数据库（backend/data 目录），不会上传到任何服务器。</p>
+
+      <el-form label-width="140px" style="max-width: 720px">
+        <el-divider content-position="left">界面配色</el-divider>
+        <el-form-item label="主题色">
+          <div class="palette-row">
+            <div
+              v-for="p in palettes"
+              :key="p.id"
+              class="palette-card"
+              :class="{ active: palette === p.id }"
+              @click="pickPalette(p.id)"
+            >
+              <span class="palette-dots">
+                <i :style="{ background: p.swatch.main }"></i>
+                <i :style="{ background: p.swatch.soft }"></i>
+                <i :style="{ background: p.swatch.bg }"></i>
+              </span>
+              <span class="palette-name">{{ p.name }}</span>
+              <span class="palette-desc">{{ p.desc }}</span>
+            </div>
+          </div>
+          <span class="switch-tip">深色 / 浅色模式请在右上角 ☀️/🌙 按钮切换，配色两种模式都会生效</span>
+        </el-form-item>
+
+        <el-divider content-position="left">功能开关</el-divider>
+        <el-form-item label="英语听写填空">
+          <el-switch v-model="dictationEnabled" @change="saveFeature('dictation_enabled', dictationEnabled)" />
+          <span class="switch-tip">英语笔记页出现「听写」页签：从原视频字幕挖空，边听边填（关闭后隐藏）</span>
+        </el-form-item>
+        <el-form-item label="同类变式题">
+          <el-switch v-model="variantEnabled" @change="saveFeature('variant_enabled', variantEnabled)" />
+          <span class="switch-tip">自测题卡片出现「生成变式」：AI 换数字、换情境再出一道同知识点题</span>
+        </el-form-item>
+        <el-form-item label="学前诊断">
+          <el-switch v-model="diagnosisEnabled" @change="saveFeature('diagnosis_enabled', diagnosisEnabled)" />
+          <span class="switch-tip">打开合集后续视频前，先抽测前面几集的先修知识点，给出「可跳过/需先复习」建议</span>
+        </el-form-item>
+
         <el-divider content-position="left">大模型供应商</el-divider>
         <el-form-item label="默认供应商">
           <el-select v-model="provider" style="width: 100%">
@@ -53,7 +90,7 @@
 
         <el-divider content-position="left">离线语音转写</el-divider>
         <el-form-item label="离线语音转写">
-          <el-switch v-model="whisperEnabled" />
+          <el-switch v-model="whisperEnabled" @change="saveFeature('enable_whisper', whisperEnabled)" />
           <span class="switch-tip">无字幕视频使用本地 faster-whisper 转写（pip install faster-whisper，无需 ffmpeg）</span>
         </el-form-item>
         <el-form-item label="转写模型">
@@ -63,6 +100,12 @@
         <el-form-item label="音频语言">
           <el-input v-model="whisperLanguage" style="width: 200px" placeholder="自动检测" />
           <span class="switch-tip">如 zh / en，留空自动检测</span>
+        </el-form-item>
+
+        <el-divider content-position="left">合集批量任务</el-divider>
+        <el-form-item label="同时处理集数">
+          <el-input-number v-model="collectionConcurrency" :min="1" :max="4" size="small" style="width: 130px" />
+          <span class="switch-tip">并发 1-4，越大越快但越容易触发限流；本地 Whisper 转写建议保持 1</span>
         </el-form-item>
 
         <el-form-item>
@@ -76,7 +119,7 @@
         :closable="false"
         show-icon
         title="如何获取 API Key"
-        description="DeepSeek：platform.deepseek.com；Kimi：platform.moonshot.cn；通义千问：阿里云百炼 DashScope（需开通兼容模式）。Ollama 为本地模型，无需 Key，需先安装 Ollama 并运行 ollama serve，再拉取模型（如 ollama pull qwen2.5:7b）。长视频建议使用大窗口模型（如 Kimi moonshot-v1-32k）。"
+        description="DeepSeek：platform.deepseek.com（默认 deepseek-v4-pro，视觉公式识别自动用 deepseek-flash）；Kimi：platform.kimi.com（默认 kimi-k2.6，支持视觉与 256k 长上下文）；通义千问：阿里云百炼 DashScope（兼容模式，视觉用 qwen-vl-max）。Ollama 为本地模型，无需 Key，需先安装 Ollama 并运行 ollama serve，再拉取模型（如 ollama pull qwen2.5:7b）。长视频建议使用大窗口模型（如 Kimi kimi-k2.6）。"
       />
     </el-card>
   </div>
@@ -85,6 +128,7 @@
 <script>
 import { ElMessage } from 'element-plus'
 import api from '../api'
+import { theme, setPalette } from '../utils/theme'
 
 export default {
   name: 'ConfigView',
@@ -101,8 +145,18 @@ export default {
       whisperLanguage: '',
       biliCookie: '',
       biliCookieSet: false,
+      collectionConcurrency: 2,
+      dictationEnabled: true,
+      variantEnabled: true,
+      diagnosisEnabled: true,
       saving: false,
-      testing: false
+      testing: false,
+      palette: theme.palette,
+      palettes: [
+        { id: 'paper', name: '纸墨青', desc: '墨青 + 暖纸，学术书卷气', swatch: { main: '#0d7e70', soft: '#e6f4f1', bg: '#f6f5f1' } },
+        { id: 'ocean', name: '海盐蓝', desc: '冷静蓝调，适合长时间阅读', swatch: { main: '#2563eb', soft: '#e8effd', bg: '#f5f7fb' } },
+        { id: 'sunset', name: '秋日橙', desc: '暖陶土色，专注学习的小暖窝', swatch: { main: '#bf5b2d', soft: '#fbeee7', bg: '#faf6f0' } }
+      ]
     }
   },
   computed: {
@@ -124,6 +178,10 @@ export default {
       var found = this.providers.find(function (p) { return p.id === id })
       return found ? found.key_url : ''
     },
+    pickPalette(id) {
+      this.palette = id
+      setPalette(id)
+    },
     async load() {
       try {
         var cfg = await api.get('/config')
@@ -136,6 +194,18 @@ export default {
         this.whisperModel = cfg.whisper_model || 'base'
         this.whisperLanguage = cfg.whisper_language || ''
         this.biliCookieSet = !!cfg.bili_cookie_set
+        this.collectionConcurrency = Number(cfg.collection_concurrency) || 2
+        this.dictationEnabled = cfg.dictation_enabled !== false
+        this.variantEnabled = cfg.variant_enabled !== false
+        this.diagnosisEnabled = cfg.diagnosis_enabled !== false
+      } catch (e) {
+        ElMessage.error(e.message)
+      }
+    },
+    async saveFeature(key, value) {
+      try {
+        await api.post('/config/set', { key: key, value: value ? '1' : '0' })
+        ElMessage.success('已保存')
       } catch (e) {
         ElMessage.error(e.message)
       }
@@ -157,13 +227,16 @@ export default {
         if (this.provider === 'ollama') {
           await api.post('/config/set', { key: 'ollama_base_url', value: this.ollamaBaseUrl || 'http://localhost:11434' })
         }
-        await api.post('/config/set', { key: 'enable_whisper', value: this.whisperEnabled ? '1' : '0' })
         await api.post('/config/set', { key: 'whisper_model', value: this.whisperModel || 'base' })
         await api.post('/config/set', { key: 'whisper_language', value: this.whisperLanguage || '' })
         if (this.biliCookie && this.biliCookie.trim()) {
           await api.post('/config/set', { key: 'bili_cookie', value: this.biliCookie.trim() })
           this.biliCookie = ''
         }
+        await api.post('/config/set', {
+          key: 'collection_concurrency',
+          value: String(Math.min(4, Math.max(1, this.collectionConcurrency || 2)))
+        })
         ElMessage.success('配置已保存')
         this.load()
       } catch (e) {
@@ -188,12 +261,26 @@ export default {
 </script>
 
 <style scoped>
-.tip { color: #909399; font-size: 13px; }
-.switch-tip { color: #909399; font-size: 12px; margin-left: 10px; }
+.tip { color: var(--c-text-3); font-size: 13px; }
+.switch-tip { color: var(--c-text-3); font-size: 12px; margin-left: 10px; line-height: 1.6; }
 .key-row { display: flex; align-items: center; gap: 10px; width: 100%; }
 .key-row .el-input { flex: 1; }
 .key-url { flex-shrink: 0; font-size: 13px; }
 .cookie-wrap { width: 100%; }
 .cookie-wrap .switch-tip { display: block; margin: 6px 0 0; line-height: 1.6; }
 h2 { margin-top: 0; }
+
+.palette-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.palette-card {
+  display: flex; flex-direction: column; gap: 4px;
+  width: 150px; padding: 10px 12px; border-radius: 10px;
+  border: 1px solid var(--c-border); background: var(--c-bg-elev);
+  cursor: pointer; transition: all .15s;
+}
+.palette-card:hover { box-shadow: var(--c-shadow-hover); transform: translateY(-1px); }
+.palette-card.active { border-color: var(--c-primary); box-shadow: 0 0 0 2px var(--c-primary-soft); }
+.palette-dots { display: flex; gap: 5px; }
+.palette-dots i { width: 22px; height: 22px; border-radius: 50%; display: inline-block; border: 1px solid rgba(0,0,0,.08); }
+.palette-name { font-size: 13px; font-weight: 600; color: var(--c-text); }
+.palette-desc { font-size: 12px; color: var(--c-text-3); line-height: 1.4; }
 </style>

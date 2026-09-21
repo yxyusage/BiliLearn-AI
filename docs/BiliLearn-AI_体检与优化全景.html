@@ -1,0 +1,205 @@
+<html style="margin:0;padding:0;">
+<title>BiliLearn-AI 架构与问题全景体检</title>
+<div style="width:100%;box-sizing:border-box;background:#f1f5f9;padding:28px 18px;font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;color:#1e293b;">
+  <div style="max-width:1180px;margin:0 auto;">
+
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:24px 26px;margin-bottom:18px;">
+      <div style="font-size:22px;font-weight:700;color:#0f172a;">BiliLearn-AI 架构与问题全景体检</div>
+      <div style="font-size:13px;color:#64748b;margin-top:6px;">基于后端 20 个源文件、前端 17 个源文件与 17 份已生成笔记的逐行审查 · 2026-09-21</div>
+      <div style="margin-top:14px;padding:12px 14px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;font-size:14px;line-height:1.7;">
+        <b>一句话结论：</b>学习闭环的「骨架」已经搭全，但四个核心环节的「最后一公里」没打通——笔记停留在<b>字幕改写</b>而非归纳、公式在多处<b>降级为源码</b>、AI 答疑有多个<b>确定性 bug</b>、导出物是网页内容的<b>子集换皮</b>；另有播放器整页重载、帧文件互相覆盖、Docker 内视觉功能缺失等硬伤。
+      </div>
+    </div>
+
+    <!-- 架构分层 -->
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:22px 26px;margin-bottom:18px;">
+      <div style="font-size:17px;font-weight:700;margin-bottom:4px;">一、系统架构（实际代码）</div>
+      <div style="font-size:12px;color:#94a3b8;margin-bottom:16px;">数据自上而下，后台线程旁路写库</div>
+
+      <div style="border:2px solid #2563eb;border-radius:10px;padding:14px 16px;background:#eff6ff;">
+        <div style="font-size:13px;font-weight:700;color:#1d4ed8;margin-bottom:10px;">前端 · Vue3 + Element Plus（frontend/src，Vite 构建，生产由后端 StaticFiles 托管）</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">
+          <div style="flex:1;min-width:150px;background:#fff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 10px;font-size:12.5px;line-height:1.6;"><b>Home</b><br/>链接解析·学科选择·批量入口</div>
+          <div style="flex:1.4;min-width:200px;background:#fff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 10px;font-size:12.5px;line-height:1.6;"><b>NoteDetail（39KB 核心页）</b><br/>播放器·笔记·脑图·公式·生词·测验·复盘·答疑抽屉</div>
+          <div style="flex:1;min-width:150px;background:#fff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 10px;font-size:12.5px;line-height:1.6;"><b>Collections</b><br/>批量队列·知识图谱·考点地图</div>
+          <div style="flex:0.8;min-width:120px;background:#fff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 10px;font-size:12.5px;line-height:1.6;"><b>History / Config</b><br/>记录管理·密钥配置</div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;">
+          <div style="background:#dbeafe;border-radius:6px;padding:5px 9px;font-size:11.5px;">VideoPlayer = B站 iframe（改 src 跳转）</div>
+          <div style="background:#dbeafe;border-radius:6px;padding:5px 9px;font-size:11.5px;">MermaidView（节点 id 解析点击）</div>
+          <div style="background:#dbeafe;border-radius:6px;padding:5px 9px;font-size:11.5px;">LatexText / KaTeX（正则抽 $ 公式）</div>
+          <div style="background:#dbeafe;border-radius:6px;padding:5px 9px;font-size:11.5px;">QuizCard（逐题判分）</div>
+        </div>
+      </div>
+
+      <div style="text-align:center;font-size:18px;color:#94a3b8;line-height:1;margin:6px 0;">↓ axios / fetch-SSE（/api）</div>
+
+      <div style="border:2px solid #0d9488;border-radius:10px;padding:14px 16px;background:#f0fdfa;">
+        <div style="font-size:13px;font-weight:700;color:#0f766e;margin-bottom:10px;">接口层 · FastAPI Routers（backend/app/routers）</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">
+          <div style="flex:1;min-width:110px;background:#fff;border:1px solid #99f6e4;border-radius:8px;padding:8px;font-size:12px;text-align:center;">video<br/>解析/字幕</div>
+          <div style="flex:1;min-width:110px;background:#fff;border:1px solid #99f6e4;border-radius:8px;padding:8px;font-size:12px;text-align:center;">notes<br/>生成·关键帧·公式·答疑</div>
+          <div style="flex:1;min-width:110px;background:#fff;border:1px solid #99f6e4;border-radius:8px;padding:8px;font-size:12px;text-align:center;">quiz<br/>出题·批改·错题</div>
+          <div style="flex:1;min-width:110px;background:#fff;border:1px solid #99f6e4;border-radius:8px;padding:8px;font-size:12px;text-align:center;">review<br/>复盘·复习计划</div>
+          <div style="flex:1;min-width:110px;background:#fff;border:1px solid #99f6e4;border-radius:8px;padding:8px;font-size:12px;text-align:center;">collections<br/>批量队列·图谱</div>
+          <div style="flex:1;min-width:110px;background:#fff;border:1px solid #99f6e4;border-radius:8px;padding:8px;font-size:12px;text-align:center;">export / config<br/>导出·配置</div>
+        </div>
+      </div>
+
+      <div style="text-align:center;font-size:18px;color:#94a3b8;line-height:1;margin:6px 0;">↓ 同步调用；生成任务走 threading.Thread 后台线程</div>
+
+      <div style="border:2px solid #d97706;border-radius:10px;padding:14px 16px;background:#fffbeb;">
+        <div style="font-size:13px;font-weight:700;color:#b45309;margin-bottom:10px;">服务层 · Services</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">
+          <div style="flex:1.2;min-width:180px;background:#fff;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.6;"><b>note_generator</b><br/>字幕按 6000 字分段 → 逐段 map → 一次 reduce（串行）</div>
+          <div style="flex:1;min-width:150px;background:#fff;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.6;"><b>prompts</b><br/>5 学科模板·测验·复盘·视觉 Prompt</div>
+          <div style="flex:1;min-width:150px;background:#fff;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.6;"><b>llm/</b><br/>OpenAI 兼容 + Ollama 统一封装·JSON 重试</div>
+          <div style="flex:1;min-width:150px;background:#fff;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.6;"><b>bilibili / whisper</b><br/>yt-dlp 抓 CC 字幕·faster-whisper 转写</div>
+          <div style="flex:1;min-width:150px;background:#fff;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.6;"><b>formulas</b><br/>PyAV 抽帧 + 视觉模型转 LaTeX</div>
+          <div style="flex:1;min-width:150px;background:#fff;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.6;"><b>export</b><br/>MD/PDF/DOCX/XMind/Anki/CSV</div>
+        </div>
+      </div>
+
+      <div style="text-align:center;font-size:18px;color:#94a3b8;line-height:1;margin:6px 0;">↓</div>
+
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:260px;border:2px solid #64748b;border-radius:10px;padding:12px 14px;background:#f8fafc;">
+          <div style="font-size:13px;font-weight:700;color:#475569;margin-bottom:8px;">本地存储</div>
+          <div style="font-size:12.5px;line-height:1.9;">SQLite（WAL）：notes / subtitle_cache / wrong_answers / collection_jobs / review_plan / settings<br/>文件：data/notes/*.md 与 {id}_frames/ 截图</div>
+        </div>
+        <div style="flex:1;min-width:260px;border:2px solid #64748b;border-radius:10px;padding:12px 14px;background:#f8fafc;">
+          <div style="font-size:13px;font-weight:700;color:#475569;margin-bottom:8px;">外部依赖</div>
+          <div style="font-size:12.5px;line-height:1.9;">B站（yt-dlp：元数据·CC字幕·音视频流）<br/>DeepSeek / Kimi / 通义千问（含 qwen-vl 视觉）/ 本地 Ollama</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 工作流 -->
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:22px 26px;margin-bottom:18px;">
+      <div style="font-size:17px;font-weight:700;margin-bottom:4px;">二、端到端工作流与问题锚点</div>
+      <div style="font-size:12px;color:#94a3b8;margin-bottom:16px;">红色锚点 = 该阶段已确认的缺陷，编号对应下文问题清单</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">
+        <div style="flex:1;min-width:150px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:10px;font-size:12px;line-height:1.6;"><b>① 粘贴链接</b><br/>yt-dlp 解析合集/分P<br/><span style="color:#dc2626;">G5 只查首P字幕 · G6 标题取错</span></div>
+        <div style="flex:1;min-width:150px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:10px;font-size:12px;line-height:1.6;"><b>② 字幕获取</b><br/>官方CC → 否则 whisper<br/><span style="color:#dc2626;">G4 转写无进度/模型重载</span></div>
+        <div style="flex:1;min-width:150px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:10px;font-size:12px;line-height:1.6;"><b>③ 分段 map</b><br/>6000字/段逐段出小节<br/><span style="color:#ea580c;">A10 串行慢 · A11 JSON 易失败</span></div>
+        <div style="flex:1;min-width:150px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:10px;font-size:12px;line-height:1.6;"><b>④ 全局 reduce</b><br/>合并章节+脑图+摘要<br/><span style="color:#dc2626;">A1 只合并不归纳 · A3 时间戳错造 · A6 脑图不合规</span></div>
+        <div style="flex:1;min-width:150px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:10px;font-size:12px;line-height:1.6;"><b>⑤ 落库+落 MD</b><br/>SQLite + notes/*.md<br/><span style="color:#ea580c;">E6 孤儿文件 · 假时间戳 00:00:00</span></div>
+        <div style="flex:1;min-width:150px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:10px;font-size:12px;line-height:1.6;"><b>⑥ 阅读联动</b><br/>iframe + 时间戳/脑图跳转<br/><span style="color:#dc2626;">F1 每次跳转重载播放器 · A4 章节时间重叠</span></div>
+        <div style="flex:1;min-width:150px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:10px;font-size:12px;line-height:1.6;"><b>⑦ 关键帧/公式</b><br/>抽帧 + 视觉模型<br/><span style="color:#dc2626;">B4 公式孤岛 · B5 帧互相覆盖 · B6 重复下载整片</span></div>
+        <div style="flex:1;min-width:150px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:10px;font-size:12px;line-height:1.6;"><b>⑧ 自测批改</b><br/>出题·逐题判·错题本<br/><span style="color:#dc2626;">D1 简答题多余 · D2 单选误判 · D3 公式不渲染</span></div>
+        <div style="flex:1;min-width:150px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:10px;font-size:12px;line-height:1.6;"><b>⑨ AI 答疑</b><br/>SSE 流式对话<br/><span style="color:#dc2626;">C1 输入法误发送 · C4 图闪烁 · C6 上下文截断</span></div>
+        <div style="flex:1;min-width:150px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:10px;font-size:12px;line-height:1.6;"><b>⑩ 复盘/导出</b><br/>薄弱点·复习计划·下载<br/><span style="color:#dc2626;">H2 计划无入口 · E1/E2 导出=换皮且公式丢失</span></div>
+      </div>
+    </div>
+
+    <!-- 问题地图 -->
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:22px 26px;margin-bottom:18px;">
+      <div style="font-size:17px;font-weight:700;margin-bottom:14px;">三、问题地图（9 个模块，共 70+ 项）</div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px;font-size:12.5px;">
+        <span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:11px;height:11px;background:#dc2626;border-radius:2px;display:inline-block;"></span>P0 核心体验硬伤</span>
+        <span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:11px;height:11px;background:#ea580c;border-radius:2px;display:inline-block;"></span>P1 功能正确性/完整性</span>
+        <span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:11px;height:11px;background:#ca8a04;border-radius:2px;display:inline-block;"></span>P2 健壮性/工程化</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;">
+
+        <div style="flex:1;min-width:330px;border:1px solid #fecaca;border-radius:10px;padding:12px 14px;background:#fef2f2;">
+          <div style="font-size:14px;font-weight:700;margin-bottom:6px;">笔记生成 <span style="font-size:11px;color:#dc2626;">P0×3</span></div>
+          <div style="font-size:12.3px;line-height:1.8;color:#475569;">
+            <b style="color:#dc2626;">P0</b> 扁平要点列表＝改写版字幕，无层级/例题详解/对比表，reduce 只合并不归纳<br/>
+            <b style="color:#ea580c;">P1</b> 时间戳丢失/编造、假 00:00:00；章节时间区间重叠；important 泛滥<br/>
+            <b style="color:#ea580c;">P1</b> 脑图 mindmap/graphTD 混用、自环重复 id、多断链，无校验<br/>
+            <b style="color:#ea580c;">P1</b> 英语"听力原文"模型复述产生听写幻觉（Sunden Fluff、extreme afiles）<br/>
+            <b style="color:#ca8a04;">P2</b> 串行调用慢、无 json_mode、长 reduce 超窗风险
+          </div>
+        </div>
+
+        <div style="flex:1;min-width:330px;border:1px solid #fecaca;border-radius:10px;padding:12px 14px;background:#fef2f2;">
+          <div style="font-size:14px;font-weight:700;margin-bottom:6px;">数学公式 <span style="font-size:11px;color:#dc2626;">P0×4</span></div>
+          <div style="font-size:12.3px;line-height:1.8;color:#475569;">
+            <b style="color:#dc2626;">P0</b> 只认 $ 分隔，不认 \( \) / \[ \] / 裸 LaTeX，跨行公式失配<br/>
+            <b style="color:#dc2626;">P0</b> KaTeX 解析失败显示红色源码，无人类可读兜底<br/>
+            <b style="color:#dc2626;">P0</b> 识别结果是孤岛：不进正文/不进导出，且丢失帧对应<br/>
+            <b style="color:#dc2626;">P0</b> 关键帧与公式帧同名 frame_N 互相覆盖<br/>
+            <b style="color:#ea580c;">P1</b> 选项/答案/批改/错题/复盘全是纯文本，公式源码外露；PDF/Word 公式原样
+          </div>
+        </div>
+
+        <div style="flex:1;min-width:330px;border:1px solid #fecaca;border-radius:10px;padding:12px 14px;background:#fef2f2;">
+          <div style="font-size:14px;font-weight:700;margin-bottom:6px;">AI 答疑 <span style="font-size:11px;color:#dc2626;">P0×5</span></div>
+          <div style="font-size:12.3px;line-height:1.8;color:#475569;">
+            <b style="color:#dc2626;">P0</b> 中文输入法组词回车误发送（未判 isComposing）<br/>
+            <b style="color:#dc2626;">P0</b> 流式中途报错覆盖已生成内容；HTTP 错误只见 "HTTP 400"<br/>
+            <b style="color:#dc2626;">P0</b> 流式中 Mermaid 未闭合反复渲染报错闪烁；代码围栏匹配过严<br/>
+            <b style="color:#dc2626;">P0</b> 上下文硬截断 6000 字，长笔记后半不可问<br/>
+            <b style="color:#ea580c;">P1</b> 150 字上限+强制画图；不持久化；无停止/复制/重试；列表表格不渲染
+          </div>
+        </div>
+
+        <div style="flex:1;min-width:330px;border:1px solid #fed7aa;border-radius:10px;padding:12px 14px;background:#fff7ed;">
+          <div style="font-size:14px;font-weight:700;margin-bottom:6px;">自测题 <span style="font-size:11px;color:#ea580c;">P1×5</span></div>
+          <div style="font-size:12.3px;line-height:1.8;color:#475569;">
+            <b style="color:#ea580c;">P1</b> 简答题主观批改价值低（可移除）<br/>
+            <b style="color:#ea580c;">P1</b> 单选答案字符串全等判定，模型答 "A" 即误判，应存选项索引<br/>
+            <b style="color:#ea580c;">P1</b> 题干选项/参考答案/反馈不渲染公式<br/>
+            <b style="color:#ea580c;">P1</b> 答题状态不落库，刷新可重做、错题重复入库<br/>
+            <b style="color:#ca8a04;">P2</b> 输入截断 12000 字、时间戳不校验、归章随时间重叠失效
+          </div>
+        </div>
+
+        <div style="flex:1;min-width:330px;border:1px solid #fecaca;border-radius:10px;padding:12px 14px;background:#fef2f2;">
+          <div style="font-size:14px;font-weight:700;margin-bottom:6px;">导出 <span style="font-size:11px;color:#dc2626;">P0×2</span></div>
+          <div style="font-size:12.3px;line-height:1.8;color:#475569;">
+            <b style="color:#dc2626;">P0</b> 导出＝扁平 points 换格式，无归纳层（用户感知"只是字幕"）<br/>
+            <b style="color:#dc2626;">P0</b> PDF/Word：公式原样、**星号原样、脑图丢弃、图片路径依赖工作目录<br/>
+            <b style="color:#ea580c;">P1</b> 不含题目/错题/公式/复盘/脑图；Anki 仅英语生词；XMind 截断<br/>
+            <b style="color:#ca8a04;">P2</b> md 图片相对路径、删笔记留孤儿文件、window.open 失败无提示
+          </div>
+        </div>
+
+        <div style="flex:1;min-width:330px;border:1px solid #fecaca;border-radius:10px;padding:12px 14px;background:#fef2f2;">
+          <div style="font-size:14px;font-weight:700;margin-bottom:6px;">播放器联动 <span style="font-size:11px;color:#dc2626;">P0×1</span></div>
+          <div style="font-size:12.3px;line-height:1.8;color:#475569;">
+            <b style="color:#dc2626;">P0</b> 跳转靠改 iframe src，每次整播放器重载、重新缓冲<br/>
+            <b style="color:#ea580c;">P1</b> 无法监听播放进度（当前知识点高亮、续播做不了）<br/>
+            <b style="color:#ea580c;">P1</b> autoplay 可能被拦截；连点竞态；假 00:00:00 跳转误导
+          </div>
+        </div>
+
+        <div style="flex:1;min-width:330px;border:1px solid #fed7aa;border-radius:10px;padding:12px 14px;background:#fff7ed;">
+          <div style="font-size:14px;font-weight:700;margin-bottom:6px;">合集队列/转写 <span style="font-size:11px;color:#ea580c;">P1×3</span></div>
+          <div style="font-size:12.3px;line-height:1.8;color:#475569;">
+            <b style="color:#ea580c;">P1</b> 逐集串行；服务重启后 running 任务永久卡死，无恢复<br/>
+            <b style="color:#ea580c;">P1</b> 启动合集不带 Cookie；图谱 6章×3点+2万字截断，大课程后半丢失<br/>
+            <b style="color:#ca8a04;">P2</b> 无取消/失败集重试；whisper 每次重载模型、无 VAD/进度；无唯一约束致重复笔记
+          </div>
+        </div>
+
+        <div style="flex:1;min-width:330px;border:1px solid #fed7aa;border-radius:10px;padding:12px 14px;background:#fff7ed;">
+          <div style="font-size:14px;font-weight:700;margin-bottom:6px;">复盘/复习 <span style="font-size:11px;color:#ea580c;">P1×2</span></div>
+          <div style="font-size:12.3px;line-height:1.8;color:#475569;">
+            <b style="color:#ea580c;">P1</b> 计划＝章节×6 条"复习章节X"，无知识点/链接/掌握度；重做即清空完成状态<br/>
+            <b style="color:#ea580c;">P1</b> /review/plan 接口前端从未调用，导航无"今日复习"，功能半成品<br/>
+            <b style="color:#ca8a04;">P2</b> 复盘时间戳不校验；错题无"已掌握"流转；非 SM-2
+          </div>
+        </div>
+
+        <div style="flex:1;min-width:330px;border:1px solid #fef08a;border-radius:10px;padding:12px 14px;background:#fefce8;">
+          <div style="font-size:14px;font-weight:700;margin-bottom:6px;">工程/部署 <span style="font-size:11px;color:#ca8a04;">P2 为主</span></div>
+          <div style="font-size:12.3px;line-height:1.8;color:#475569;">
+            <b style="color:#dc2626;">P0级隐患</b> Docker 未装 pyav/whisper，容器内关键帧/公式必坏<br/>
+            <b style="color:#ca8a04;">P2</b> katex 未在 package.json 声明（靠 mermaid 传递依赖）<br/>
+            <b style="color:#ca8a04;">P2</b> start.bat 见 dist 即跳过构建，更新代码后前端不刷新<br/>
+            <b style="color:#ca8a04;">P2</b> requirements 重复/缺 av、yt-dlp 下限旧；WAL 2.8MB 不 checkpoint<br/>
+            <b style="color:#ca8a04;">P2</b> Kimi 视觉模型名已过时；无线程池上限；v-html 面；版本号三处不一致；测试薄
+          </div>
+        </div>
+
+      </div>
+
+      <div style="margin-top:16px;padding:12px 14px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;font-size:13px;line-height:1.8;color:#0c4a6e;">
+        <b>建议的修复次序：</b>第一批先做「确定性 bug + 高感知」——AI 答疑 5 项、播放器 postMessage、帧文件覆盖、公式渲染兜底与全链路渲染；第二批做「核心价值」——笔记 schema 升级（多级结构 + 二次归纳）与导出重写（题型可裁剪，简答先下线）；第三批做「健壮性」——任务持久化/恢复、Docker 依赖、复习闭环、合集质量。
+      </div>
+    </div>
+
+  </div>
+</div>

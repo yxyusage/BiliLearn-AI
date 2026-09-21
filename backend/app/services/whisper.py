@@ -5,19 +5,32 @@
 """
 import os
 import tempfile
-from typing import List, Optional
+import threading
+from typing import Dict, List, Optional
 
 import yt_dlp
 
 from .netutil import clear_proxy_env, has_proxy_env, restore_proxy_env
 
+# 模型进程级缓存，避免每集都重新加载（加载一次大模型可达数十秒）
+_MODELS: Dict[str, object] = {}
+_MODEL_LOCK = threading.Lock()
+
+
+def _get_model(model_name: str):
+    name = model_name or "base"
+    with _MODEL_LOCK:
+        if name not in _MODELS:
+            try:
+                from faster_whisper import WhisperModel
+            except ImportError as exc:  # noqa: BLE001
+                raise RuntimeError("未安装 faster-whisper。请先执行 pip install faster-whisper 后重试") from exc
+            # 固定 CPU 推理（device=auto 在无 CUDA 库的机器上会因 cublas 缺失而失败）
+            _MODELS[name] = WhisperModel(name, device="cpu", compute_type="int8")
+        return _MODELS[name]
+
 
 def transcribe(bvid: str, page: int = 1, model_name: Optional[str] = None, language: Optional[str] = None, cookie: str = "") -> List[dict]:
-    try:
-        from faster_whisper import WhisperModel
-    except ImportError as exc:  # noqa: BLE001
-        raise RuntimeError("未安装 faster-whisper。请先执行 pip install faster-whisper 后重试") from exc
-
     url = "https://www.bilibili.com/video/" + bvid + "?p=" + str(page or 1)
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -53,11 +66,13 @@ def transcribe(bvid: str, page: int = 1, model_name: Optional[str] = None, langu
         if not files:
             raise RuntimeError("音频下载失败：未找到音频文件")
 
-        # 固定 CPU 推理（device=auto 在无 CUDA 库的机器上会因 cublas 缺失而失败）
-        model = WhisperModel(model_name or "base", device="cpu", compute_type="int8")
+        model = _get_model(model_name or "base")
         lang = language or None  # None = 自动检测
         segments, _info = model.transcribe(
-            os.path.join(tmp, files[0]), language=lang, beam_size=5
+            os.path.join(tmp, files[0]),
+            language=lang,
+            beam_size=5,
+            vad_filter=True,  # 过滤静音/片头片尾噪声
         )
         return [
             {"start": float(s.start), "end": float(s.end), "text": s.text.strip()}

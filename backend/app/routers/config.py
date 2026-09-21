@@ -23,6 +23,10 @@ _KEYS = (
     "whisper_model",
     "whisper_language",
     "bili_cookie",
+    "collection_concurrency",
+    "dictation_enabled",
+    "variant_enabled",
+    "diagnosis_enabled",
 )
 
 
@@ -50,6 +54,10 @@ def get_config(db: Session = Depends(get_db)):
         "whisper_model": values.get("whisper_model") or "base",
         "whisper_language": values.get("whisper_language") or "",
         "bili_cookie_set": bool(values.get("bili_cookie") or ""),
+        "collection_concurrency": values.get("collection_concurrency") or "2",
+        "dictation_enabled": str(values.get("dictation_enabled") or "1").lower() in ("1", "true", "on", "yes"),
+        "variant_enabled": str(values.get("variant_enabled") or "1").lower() in ("1", "true", "on", "yes"),
+        "diagnosis_enabled": str(values.get("diagnosis_enabled") or "1").lower() in ("1", "true", "on", "yes"),
         "providers": [
             {
                 "id": p,

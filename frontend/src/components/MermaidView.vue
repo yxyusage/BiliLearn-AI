@@ -24,7 +24,7 @@ export default {
   },
   emits: ['node-click'],
   data() {
-    return { loading: false, error: '' }
+    return { loading: false, error: '', seq: 0 }
   },
   watch: {
     code: {
@@ -47,21 +47,23 @@ export default {
         flowchart: { htmlLabels: true, curve: 'basis', nodeSpacing: 40, rankSpacing: 50 },
         themeVariables: dark ? {
           fontFamily: '-apple-system, "PingFang SC", "Microsoft YaHei", sans-serif',
-          primaryColor: '#263445',
-          primaryBorderColor: '#409eff',
-          primaryTextColor: '#e5eaf3',
-          lineColor: '#6b7785',
-          edgeLabelBackground: '#1d1e1f',
-          clusterBkg: '#1d1e1f',
+          primaryColor: '#16302d',
+          primaryBorderColor: '#2fbfae',
+          primaryTextColor: '#e2e9e8',
+          lineColor: '#6e7b7b',
+          edgeLabelBackground: '#141d20',
+          clusterBkg: '#141d20',
+          tertiaryColor: '#141d20',
           fontSize: '14px'
         } : {
           fontFamily: '-apple-system, "PingFang SC", "Microsoft YaHei", sans-serif',
-          primaryColor: '#e8f4ff',
-          primaryBorderColor: '#409eff',
-          primaryTextColor: '#1f2d3d',
-          lineColor: '#909399',
+          primaryColor: '#e6f4f1',
+          primaryBorderColor: '#0d7e70',
+          primaryTextColor: '#1e272b',
+          lineColor: '#8a9296',
           edgeLabelBackground: '#ffffff',
-          clusterBkg: '#f5f7fa',
+          clusterBkg: '#f6f5f1',
+          tertiaryColor: '#ffffff',
           fontSize: '14px'
         }
       })
@@ -69,21 +71,23 @@ export default {
       lastDark = dark
     },
     async render() {
-      if (!this.code) { this.error = ''; return }
+      var mySeq = ++this.seq
+      if (!this.code) { this.error = ''; this.loading = false; return }
       this.ensureInit()
       this.loading = true
       this.error = ''
       try {
         var id = 'mm-' + Date.now() + '-' + Math.floor(Math.random() * 1000)
         var result = await mermaid.render(id, this.code)
+        if (mySeq !== this.seq) return
         if (this.$refs.container) {
           this.$refs.container.innerHTML = result.svg
           this.bindClicks()
         }
       } catch (e) {
-        this.error = '脑图渲染失败：' + (e.message || e)
+        if (mySeq === this.seq) this.error = '脑图渲染失败：' + (e.message || e)
       } finally {
-        this.loading = false
+        if (mySeq === this.seq) this.loading = false
       }
     },
     bindClicks() {
@@ -107,9 +111,9 @@ export default {
 </script>
 
 <style scoped>
-.mermaid-view { min-height: 60px; overflow-x: auto; background: #fafcff; border: 1px solid #e4e7ed; border-radius: 8px; padding: 16px; }
+.mermaid-view { min-height: 60px; overflow-x: auto; background: var(--c-bg-elev); border: 1px solid var(--c-border); border-radius: 10px; padding: 16px; }
 .mermaid-view.compact { background: transparent; border: none; padding: 6px 0; min-height: 30px; }
-.mm-error { color: #f56c6c; padding: 20px; }
+.mm-error { color: var(--c-danger); padding: 20px; }
 .mm-container svg { max-width: 100%; height: auto; }
-.mm-hint { margin-top: 8px; color: #909399; font-size: 12px; text-align: center; }
+.mm-hint { margin-top: 8px; color: var(--c-text-3); font-size: 12px; text-align: center; }
 </style>

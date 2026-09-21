@@ -1,7 +1,7 @@
 """数据库模型。"""
 import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text
 
 from .database import Base
 
@@ -30,6 +30,7 @@ class Note(Base):
     formulas = Column(Text, default="")       # 板书公式识别 JSON（数理专项）
     keyframes = Column(Text, default="")      # 关键帧嵌入 JSON [{chapter, time_stamp, image}]
     review = Column(Text, default="")         # 复盘分析 JSON
+    dictations = Column(Text, default="")     # 英语听写填空 JSON（精听听写专项）
     created_at = Column(DateTime, default=_now)
     updated_at = Column(DateTime, default=_now, onupdate=_now)
 
@@ -57,6 +58,7 @@ class WrongAnswer(Base):
     id = Column(Integer, primary_key=True)
     note_id = Column(Integer, index=True)
     subject = Column(String(32), default="general")
+    qtype = Column(String(16), default="")       # single/judge/calc/proof
     question = Column(Text, default="")
     user_answer = Column(Text, default="")
     correct_answer = Column(Text, default="")
@@ -64,7 +66,10 @@ class WrongAnswer(Base):
     feedback = Column(Text, default="")  # AI 批改讲解
     difficulty = Column(String(16), default="")
     time_stamp = Column(String(16), default="")
+    status = Column(String(16), default="active")  # active/mastered
+    wrong_count = Column(Integer, default=1)
     created_at = Column(DateTime, default=_now)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
 
 
 class CollectionJob(Base):
@@ -93,4 +98,24 @@ class ReviewPlan(Base):
     content = Column(Text, default="")
     due_date = Column(String(32), default="")
     done = Column(Boolean, default=False)
+    # SM-2 动态间隔：重复次数 / 当前间隔（天）/ 难度系数 / 上次复习日期
+    repetitions = Column(Integer, default=0)
+    interval_days = Column(Integer, default=0)
+    ease_factor = Column(Float, default=2.5)
+    last_reviewed = Column(String(32), default="")
     created_at = Column(DateTime, default=_now)
+
+
+class ConfusionPoint(Base):
+    """「没懂」瞬时打点：记录卡住的视频片段与 AI 换讲内容。"""
+    __tablename__ = "confusion_points"
+
+    id = Column(Integer, primary_key=True)
+    note_id = Column(Integer, index=True)
+    time_stamp = Column(String(16), default="")
+    section = Column(Text, default="")      # 对应小节标题（可空）
+    question = Column(Text, default="")     # 用户补充的困惑描述（可空）
+    explanation = Column(Text, default="")  # AI 换讲后的内容
+    status = Column(String(16), default="open")  # open/closed
+    created_at = Column(DateTime, default=_now)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)

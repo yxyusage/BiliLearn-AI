@@ -2,19 +2,20 @@
 import datetime
 import json
 import re
+import shutil
 import threading
 import traceback
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from ..config import DATA_DIR
 from ..database import SessionLocal, get_db
-from ..models import Note, SubtitleCache
+from ..models import ConfusionPoint, Note, SubtitleCache, WrongAnswer
 from ..schemas import ChatRequest, FormulaRequest, GenerateRequest
-from ..services import bilibili, export as export_service, note_generator, whisper
+from ..services import bilibili, export as export_service, features as feature_service, note_generator, whisper
 from ..services.llm import build_llm
 from ..services.prompts import CHAT_SYSTEM, SUBJECTS as SUBJECT_NAMES
 from ..services.settings_store import get_setting, resolve_llm_config, whisper_enabled
@@ -22,6 +23,9 @@ from ..services.settings_store import get_setting, resolve_llm_config, whisper_e
 router = APIRouter()
 
 SUBJECTS = ("general", "english", "math", "cs", "liberal")
+
+# 关键帧与公式截图分目录存放，避免同名文件互相覆盖
+FRAME_KINDS = ("keyframes", "formulas", "frames")
 
 
 def _markdown_path(note_id: int, title: str) -> Path:
@@ -35,6 +39,57 @@ def _save_markdown_file(note_id: int, title: str, markdown: str) -> str:
     path = _markdown_path(note_id, title)
     path.write_text(markdown, encoding="utf-8")
     return str(path)
+
+
+def _frames_dir(note_id: int, kind: str) -> Path:
+    return DATA_DIR / "notes" / (str(note_id) + "_" + kind)
+
+
+def _cleanup_note_files(note_id: int, title: str) -> None:
+    """删除笔记时同步清理本地 Markdown 与抽帧目录。"""
+    try:
+        md = _markdown_path(note_id, title)
+        if md.exists():
+            md.unlink()
+    except Exception:  # noqa: BLE001
+        traceback.print_exc()
+    for kind in FRAME_KINDS:
+        d = _frames_dir(note_id, kind)
+        if d.exists():
+            shutil.rmtree(d, ignore_errors=True)
+
+
+def _note_context(note: Note, limit: int = 12000) -> str:
+    """构建答疑上下文：基于 v2 结构化正文按章节边界截断，避免切断公式/表格。"""
+    data = {}
+    if note.note_json:
+        try:
+            data = json.loads(note.note_json)
+        except Exception:
+            data = {}
+    if data:
+        full = note_generator.note_plain_text(data, char_limit=0)
+        if len(full) <= limit:
+            return full
+        cut = note_generator.note_plain_text(data, char_limit=limit)
+        return cut + "\n\n（注：笔记较长，此处仅载入前半部分；后半部分内容请指明章节名称后再提问）"
+    # 兜底：极端情况下结构化数据缺失时用 Markdown
+    body = note.markdown or note.summary or ""
+    return body[:limit]
+
+
+def _build_chat_messages(note: Note, req: ChatRequest) -> list:
+    context = _note_context(note)
+    messages = [{"role": "system", "content": CHAT_SYSTEM.replace("{note}", context)}]
+    for m in (req.history or [])[-10:]:
+        if not isinstance(m, dict):
+            continue
+        role = m.get("role")
+        content = str(m.get("content") or "")
+        if role in ("user", "assistant") and content:
+            messages.append({"role": role, "content": content[:4000]})
+    messages.append({"role": "user", "content": (req.message or "")[:4000]})
+    return messages
 
 
 def _run_generation(note_id: int, llm_cfg: dict):
@@ -120,6 +175,15 @@ def generate_note(req: GenerateRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="缺少 BV 号")
     if req.subject not in SUBJECTS:
         raise HTTPException(status_code=400, detail="不支持的学科类型")
+    # 同一视频已有完成/进行中的笔记时直接复用，避免重复扣费
+    existing = (
+        db.query(Note)
+        .filter(Note.bvid == req.bvid, Note.page == req.page, Note.status.in_(["done", "processing"]))
+        .order_by(Note.id.desc())
+        .first()
+    )
+    if existing:
+        return {"id": existing.id, "status": existing.status, "reused": True}
     llm_cfg = resolve_llm_config(db, req.provider, req.api_key, req.model, req.base_url)
     if llm_cfg["provider"] != "ollama" and not llm_cfg["api_key"]:
         raise HTTPException(
@@ -132,7 +196,7 @@ def generate_note(req: GenerateRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(note)
     threading.Thread(target=_run_generation, args=(note.id, llm_cfg), daemon=True).start()
-    return {"id": note.id, "status": note.status}
+    return {"id": note.id, "status": note.status, "reused": False}
 
 
 @router.get("")
@@ -193,16 +257,23 @@ def generate_keyframes(note_id: int, db: Session = Depends(get_db)):
     chapters = note_json.get("chapters") or []
     picks = []
     for idx, ch in enumerate(chapters):
-        for pt in (ch.get("points") or []):
-            sec = hms_to_seconds(pt.get("time_stamp") or "")
+        sec = 0
+        for section in (ch.get("sections") or []):
+            sec = hms_to_seconds(section.get("time_stamp") or "")
             if sec > 0:
-                picks.append((idx, sec))
                 break
+        if sec == 0:  # 兼容旧版 points 结构
+            for pt in (ch.get("points") or []):
+                sec = hms_to_seconds(pt.get("time_stamp") or "")
+                if sec > 0:
+                    break
+        if sec > 0:
+            picks.append((idx, sec))
         if len(picks) >= 8:
             break
     if not picks:
         raise HTTPException(status_code=400, detail="笔记中没有可定位的时间戳")
-    frames_dir = DATA_DIR / "notes" / (str(note.id) + "_frames")
+    frames_dir = _frames_dir(note.id, "keyframes")
     try:
         frames = formula_service.extract_frames(
             note.bvid, note.page, [s for _, s in picks], frames_dir, get_setting(db, "bili_cookie", "")
@@ -219,7 +290,7 @@ def generate_keyframes(note_id: int, db: Session = Depends(get_db)):
     words = json.loads(note.words) if note.words else None
     frames_links = {}
     for k in keyframes:
-        frames_links.setdefault(k["chapter"], []).append(str(note.id) + "_frames/" + k["image"])
+        frames_links.setdefault(k["chapter"], []).append(str(note.id) + "_keyframes/" + k["image"])
     markdown = export_service.render_note_markdown(
         note_json, note.subject, words,
         meta={
@@ -247,10 +318,13 @@ def generate_formulas(note_id: int, req: FormulaRequest, db: Session = Depends(g
     from ..services import formulas as formula_service
     from ..services.llm.factory import VISION_MODELS
 
-    provider = req.provider or "qwen"
+    provider = req.provider or "deepseek"
     model = req.model or VISION_MODELS.get(provider, "")
     if not model:
-        raise HTTPException(status_code=400, detail="所选供应商不支持视觉模型，请使用通义千问（qwen-vl-plus）或 Kimi")
+        raise HTTPException(
+            status_code=400,
+            detail="所选供应商不支持视觉模型，请使用 DeepSeek（deepseek-flash）、通义千问（qwen-vl-max）或 Kimi（kimi-k2.6）",
+        )
     cfg = resolve_llm_config(db, provider=provider, model=model)
     if cfg["provider"] != "ollama" and not cfg["api_key"]:
         raise HTTPException(status_code=400, detail="尚未配置 " + provider + " 的 API Key")
@@ -261,7 +335,7 @@ def generate_formulas(note_id: int, req: FormulaRequest, db: Session = Depends(g
     timestamps = formula_service.pick_timestamps(note_json)
     if not timestamps:
         raise HTTPException(status_code=400, detail="笔记中没有可定位的时间戳")
-    frames_dir = DATA_DIR / "notes" / (str(note.id) + "_frames")
+    frames_dir = _frames_dir(note.id, "formulas")
     try:
         frames = formula_service.extract_frames(
             note.bvid, note.page, timestamps, frames_dir, get_setting(db, "bili_cookie", "")
@@ -280,29 +354,44 @@ def generate_formulas(note_id: int, req: FormulaRequest, db: Session = Depends(g
         raise HTTPException(
             status_code=502,
             detail="视觉模型调用失败：" + errors[0][:200]
-            + "。可尝试：①到阿里云百炼检查账户余额/开通服务；②在「模型配置」填写 Kimi Key 后改用 Kimi 视觉模型",
+            + "。可尝试：①检查对应供应商账户余额与服务开通状态；②换用其他支持视觉的供应商",
         )
     note.formulas = json.dumps(
-        {"formulas": result.get("formulas") or [], "notes": result.get("notes") or []},
+        {
+            "items": result.get("items") or [],
+            "formulas": result.get("formulas") or [],
+            "notes": result.get("notes") or [],
+        },
         ensure_ascii=False,
     )
     db.commit()
+    base = "/api/notes/" + str(note.id) + "/frames/formulas/"
     return {
+        "items": result.get("items") or [],
         "formulas": result.get("formulas") or [],
         "notes": result.get("notes") or [],
-        "images": ["/api/notes/" + str(note.id) + "/frames/frame_" + str(i + 1) + ".jpg" for i in range(len(frames))],
+        "images": [base + "frame_" + str(i + 1) + ".jpg" for i in range(len(frames))],
     }
 
 
-@router.get("/{note_id}/frames/{filename}")
-def get_frame(note_id: int, filename: str):
-    if not re.fullmatch(r"[\w.-]+", filename):
+@router.get("/{note_id}/frames/{kind}/{filename}")
+def get_frame_typed(note_id: int, kind: str, filename: str):
+    if kind not in ("keyframes", "formulas") or not re.fullmatch(r"[\w.-]+", filename):
         raise HTTPException(status_code=400, detail="非法文件名")
-    path = DATA_DIR / "notes" / (str(note_id) + "_frames") / filename
+    path = _frames_dir(note_id, kind) / filename
     if not path.exists():
         raise HTTPException(status_code=404, detail="图片不存在")
-    from fastapi.responses import FileResponse
+    return FileResponse(str(path), media_type="image/jpeg")
 
+
+@router.get("/{note_id}/frames/{filename}")
+def get_frame_legacy(note_id: int, filename: str):
+    """兼容旧版本笔记的 {id}_frames 目录。"""
+    if not re.fullmatch(r"[\w.-]+", filename):
+        raise HTTPException(status_code=400, detail="非法文件名")
+    path = _frames_dir(note_id, "frames") / filename
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="图片不存在")
     return FileResponse(str(path), media_type="image/jpeg")
 
 
@@ -318,16 +407,7 @@ def note_chat_stream(note_id: int, req: ChatRequest, db: Session = Depends(get_d
     if llm_cfg["provider"] != "ollama" and not llm_cfg["api_key"]:
         raise HTTPException(status_code=400, detail="尚未配置 API Key，请先到「配置」页填写")
     llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"])
-    context = (note.summary + "\n\n" + note.markdown)[:6000]
-    messages = [{"role": "system", "content": CHAT_SYSTEM.replace("{note}", context)}]
-    for m in (req.history or [])[-8:]:
-        if not isinstance(m, dict):
-            continue
-        role = m.get("role")
-        content = str(m.get("content") or "")
-        if role in ("user", "assistant") and content:
-            messages.append({"role": role, "content": content[:2000]})
-    messages.append({"role": "user", "content": (req.message or "")[:2000]})
+    messages = _build_chat_messages(note, req)
 
     def event_stream():
         try:
@@ -355,16 +435,7 @@ def note_chat(note_id: int, req: ChatRequest, db: Session = Depends(get_db)):
     if llm_cfg["provider"] != "ollama" and not llm_cfg["api_key"]:
         raise HTTPException(status_code=400, detail="尚未配置 API Key，请先到「配置」页填写")
     llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"])
-    context = (note.summary + "\n\n" + note.markdown)[:6000]
-    messages = [{"role": "system", "content": CHAT_SYSTEM.replace("{note}", context)}]
-    for m in (req.history or [])[-8:]:
-        if not isinstance(m, dict):
-            continue
-        role = m.get("role")
-        content = str(m.get("content") or "")
-        if role in ("user", "assistant") and content:
-            messages.append({"role": role, "content": content[:2000]})
-    messages.append({"role": "user", "content": (req.message or "")[:2000]})
+    messages = _build_chat_messages(note, req)
     try:
         reply = llm.chat(messages, temperature=0.4)
     except Exception as exc:  # noqa: BLE001
@@ -372,14 +443,209 @@ def note_chat(note_id: int, req: ChatRequest, db: Session = Depends(get_db)):
     return {"reply": reply}
 
 
+@router.get("/{note_id}/dictation")
+def get_dictation(note_id: int, db: Session = Depends(get_db)):
+    note = db.query(Note).filter(Note.id == note_id).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="笔记不存在")
+    try:
+        items = json.loads(note.dictations) if note.dictations else []
+    except Exception:
+        items = []
+    return {"items": items if isinstance(items, list) else []}
+
+
+@router.post("/{note_id}/dictation")
+def generate_dictation(note_id: int, db: Session = Depends(get_db)):
+    """英语精听听写填空：从字幕中选句挖空，AI 出题，结果存库。"""
+    note = db.query(Note).filter(Note.id == note_id).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="笔记不存在")
+    if note.subject != "english":
+        raise HTTPException(status_code=400, detail="听写填空仅适用于英语笔记")
+    if note.status != "done":
+        raise HTTPException(status_code=400, detail="笔记尚未生成完成")
+    cache = db.query(SubtitleCache).filter(SubtitleCache.key == note.bvid + "_" + str(note.page)).first()
+    if not cache or not cache.subtitles:
+        raise HTTPException(status_code=400, detail="没有字幕数据（官方字幕或本地转写均可），无法生成听写")
+    try:
+        subtitles = json.loads(cache.subtitles)
+    except Exception:
+        raise HTTPException(status_code=400, detail="字幕数据损坏") from None
+    if not subtitles:
+        raise HTTPException(status_code=400, detail="字幕为空")
+    llm_cfg = resolve_llm_config(db)
+    if llm_cfg["provider"] != "ollama" and not llm_cfg["api_key"]:
+        raise HTTPException(status_code=400, detail="尚未配置 API Key，请先到「设置」页填写")
+    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"])
+    transcript = note_generator.build_transcript(subtitles)
+    try:
+        items = feature_service.generate_dictation(transcript, llm)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail="听写生成失败：" + str(exc)) from exc
+    if not items:
+        raise HTTPException(status_code=502, detail="未能从字幕中生成听写题目，可重试")
+    note.dictations = json.dumps({"items": items}, ensure_ascii=False)
+    db.commit()
+    return {"items": items}
+
+
+@router.post("/{note_id}/confusions")
+def create_confusion(note_id: int, body: dict, db: Session = Depends(get_db)):
+    """「没懂」瞬时打点：记录卡住的视频片段（可选附带小节标题与补充描述）。"""
+    note = db.query(Note).filter(Note.id == note_id).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="笔记不存在")
+    time_stamp = str(body.get("time_stamp") or "").strip()
+    row = ConfusionPoint(
+        note_id=note.id,
+        time_stamp=time_stamp[:16],
+        section=str(body.get("section") or "").strip()[:200],
+        question=str(body.get("question") or "").strip()[:500],
+        status="open",
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {"id": row.id, "time_stamp": row.time_stamp, "section": row.section, "status": row.status}
+
+
+@router.get("/{note_id}/confusions")
+def list_confusions(note_id: int, db: Session = Depends(get_db), open_only: int = 0):
+    note = db.query(Note).filter(Note.id == note_id).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="笔记不存在")
+    query = db.query(ConfusionPoint).filter(ConfusionPoint.note_id == note.id)
+    if open_only:
+        query = query.filter(ConfusionPoint.status == "open")
+    rows = query.order_by(ConfusionPoint.id.desc()).limit(100).all()
+    return [
+        {
+            "id": r.id,
+            "time_stamp": r.time_stamp,
+            "section": r.section,
+            "question": r.question,
+            "explanation": r.explanation,
+            "status": r.status,
+            "created_at": r.created_at.isoformat() if r.created_at else "",
+        }
+        for r in rows
+    ]
+
+
+@router.post("/{note_id}/confusions/{cid}/explain")
+def explain_confusion(note_id: int, cid: int, db: Session = Depends(get_db)):
+    """针对卡住的小节生成 AI 换讲，存入记录。"""
+    row = db.query(ConfusionPoint).filter(
+        ConfusionPoint.id == cid, ConfusionPoint.note_id == note_id
+    ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="打点记录不存在")
+    note = db.query(Note).filter(Note.id == note_id).first()
+    if not note or not note.note_json:
+        raise HTTPException(status_code=400, detail="笔记尚未生成完成")
+    try:
+        note_json = json.loads(note.note_json)
+    except Exception:
+        raise HTTPException(status_code=400, detail="笔记数据损坏") from None
+    llm_cfg = resolve_llm_config(db)
+    if llm_cfg["provider"] != "ollama" and not llm_cfg["api_key"]:
+        raise HTTPException(status_code=400, detail="尚未配置 API Key，请先到「设置」页填写")
+    # 定位对应小节文本；找不到则用整篇笔记前段
+    section_text = row.section or ""
+    if row.section:
+        for _, _, sec in note_generator.iter_sections(note_json):
+            if str(sec.get("heading") or "").strip() == row.section:
+                section_text = note_generator.section_text(sec)
+                break
+    if not section_text:
+        section_text = note_generator.note_plain_text(note_json, char_limit=1500)
+    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"])
+    try:
+        explanation = feature_service.re_explain_section(note_json, section_text, llm)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail="换讲生成失败：" + str(exc)) from exc
+    row.explanation = explanation
+    db.commit()
+    return {"id": row.id, "explanation": explanation}
+
+
+@router.post("/{note_id}/confusions/{cid}/resolve")
+def resolve_confusion(note_id: int, cid: int, db: Session = Depends(get_db)):
+    row = db.query(ConfusionPoint).filter(
+        ConfusionPoint.id == cid, ConfusionPoint.note_id == note_id
+    ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="打点记录不存在")
+    row.status = "closed"
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/{note_id}/diagnosis")
+def pre_diagnosis(note_id: int, db: Session = Depends(get_db)):
+    """学前诊断：从同合集前面几集抽取先修自测题，判断是否可直接跳看。"""
+    note = db.query(Note).filter(Note.id == note_id).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="笔记不存在")
+    if note.status != "done":
+        raise HTTPException(status_code=400, detail="笔记尚未生成完成")
+    prior = (
+        db.query(Note)
+        .filter(Note.bvid == note.bvid, Note.page < note.page, Note.status == "done")
+        .order_by(Note.page.desc())
+        .limit(3)
+        .all()
+    )
+    questions = []
+    for p in prior:
+        try:
+            data = json.loads(p.quizzes) if p.quizzes else {}
+        except Exception:
+            data = {}
+        pool = [q for q in (data.get("questions") or []) if q.get("type") in ("single", "judge", "fill")]
+        for q in pool[:2]:
+            q = dict(q)
+            q["note_id"] = p.id
+            questions.append(q)
+        if len(questions) >= 6:
+            break
+    return {
+        "has_prior": bool(prior),
+        "prior_notes": [
+            {"note_id": p.id, "page": p.page, "title": p.title} for p in prior
+        ],
+        "questions": questions,
+    }
+
+
 @router.delete("/{note_id}")
 def delete_note(note_id: int, db: Session = Depends(get_db)):
     note = db.query(Note).filter(Note.id == note_id).first()
     if not note:
         raise HTTPException(status_code=404, detail="笔记不存在")
+    title = note.title
     db.delete(note)
     db.commit()
+    _cleanup_note_files(note_id, title)
     return {"ok": True}
+
+
+def _is_legacy_note(data: dict) -> bool:
+    """检测是否为旧版 points 结构（无 sections）。"""
+    if not isinstance(data, dict):
+        return False
+    chapters = data.get("chapters") or []
+    if not chapters:
+        return False
+    for ch in chapters:
+        if not isinstance(ch, dict):
+            continue
+        if ch.get("sections"):
+            return False
+        if ch.get("points"):
+            return True
+    return False
 
 
 def _note_to_dict(note: Note) -> dict:
@@ -391,6 +657,14 @@ def _note_to_dict(note: Note) -> dict:
         except Exception:
             return default
 
+    note_data = _load(note.note_json, {})
+    # 旧版 points 笔记在响应时实时转换为 v2 结构（不回写数据库）
+    if _is_legacy_note(note_data):
+        try:
+            note_data = note_generator.normalize_note(note_data)
+        except Exception:
+            pass
+
     return {
         "id": note.id,
         "bvid": note.bvid,
@@ -400,7 +674,7 @@ def _note_to_dict(note: Note) -> dict:
         "status": note.status,
         "error": note.error,
         "summary": note.summary,
-        "note": _load(note.note_json, {}),
+        "note": note_data,
         "markdown": note.markdown,
         "mindmap": note.mindmap,
         "quizzes": _load(note.quizzes, {}),
@@ -408,6 +682,7 @@ def _note_to_dict(note: Note) -> dict:
         "formulas": _load(note.formulas, {}),
         "keyframes": _load(note.keyframes, []),
         "review": _load(note.review, {}),
+        "dictations": _load(note.dictations, {}),
         "created_at": note.created_at.isoformat() if note.created_at else "",
         "updated_at": note.updated_at.isoformat() if note.updated_at else "",
         "markdown_file": str(_markdown_path(note.id, note.title)) if note.markdown else "",

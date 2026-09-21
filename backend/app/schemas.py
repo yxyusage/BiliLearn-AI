@@ -28,6 +28,7 @@ class QuizRequest(BaseModel):
 
 
 class AnswerItem(BaseModel):
+    qtype: str = ""
     question: str = ""
     user_answer: str = ""
     correct_answer: str = ""
@@ -35,6 +36,23 @@ class AnswerItem(BaseModel):
     difficulty: str = ""
     time_stamp: str = ""
     correct: bool = False
+
+
+class RecordItem(BaseModel):
+    qtype: str = ""
+    question: str = ""
+    user_answer: str = ""
+    correct_answer: str = ""
+    explanation: str = ""
+    feedback: str = ""
+    difficulty: str = ""
+    time_stamp: str = ""
+    correct: bool = False
+
+
+class RecordRequest(BaseModel):
+    note_id: int
+    answers: List[RecordItem] = []
 
 
 class SubmitRequest(BaseModel):
@@ -49,7 +67,7 @@ class ReviewRequest(BaseModel):
 class JudgeRequest(BaseModel):
     note_id: int
     stem: str
-    qtype: str = "short"  # single / calc / short / proof
+    qtype: str = "single"  # single / judge / calc（proof 为自评思考卡）
     options: List[str] = []
     answer: str = ""
     user_answer: str = ""
@@ -79,3 +97,12 @@ class CollectionStartRequest(BaseModel):
 class SettingBody(BaseModel):
     key: str
     value: str
+
+
+class VariantRequest(BaseModel):
+    note_id: int
+    question: Dict[str, Any] = {}
+
+
+class RateRequest(BaseModel):
+    rating: int = 3  # 1=重来 2=困难 3=良好 4=简单

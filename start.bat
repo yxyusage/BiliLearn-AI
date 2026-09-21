@@ -2,64 +2,37 @@
 title BiliLearn-AI Launcher
 cd /d "%~dp0"
 
-rem China mirror for whisper model download
-set HF_ENDPOINT=https://hf-mirror.com
+if not exist ".venv\Scripts\python.exe" goto CREATE_VENV
+call ".venv\Scripts\activate.bat"
+powershell -NoProfile -Command "if ((Test-Path 'backend\requirements.txt') -and ((-not (Test-Path '.venv\.requirements.stamp')) -or ((Get-Item 'backend\requirements.txt').LastWriteTime -gt (Get-Item '.venv\.requirements.stamp').LastWriteTime))) { exit 1 } else { exit 0 }"
+if errorlevel 1 goto INSTALL_DEPS
+goto CHECK_FRONTEND
 
-echo.
-echo  ============================================
-echo   BiliLearn-AI one-click launcher
-echo   first run takes a few minutes
-echo  ============================================
-echo.
-
-rem 1. check python
-python --version >nul 2>nul
-if not errorlevel 1 goto :py_ok
-echo  [ERROR] Python not found.
-echo          Install from https://www.python.org/downloads/
-echo          and check "Add Python to PATH".
-pause
-exit /b 1
-:py_ok
-
-rem 2. create venv once
-if exist .venv goto :venv_ok
-echo  [1/4] Creating virtual environment...
+:CREATE_VENV
+echo [First run] Creating virtual environment...
 python -m venv .venv
-:venv_ok
+call ".venv\Scripts\activate.bat"
 
-rem 3. install deps once
-if exist .venv\Lib\site-packages\fastapi goto :deps_ok
-echo  [2/4] Installing backend dependencies, 1-3 min...
-.venv\Scripts\pip install -r backend\requirements.txt -q
-:deps_ok
+:INSTALL_DEPS
+echo [Deps] Installing/upgrading dependencies (2-5 minutes on first run)...
+python -m pip install --upgrade pip
+python -m pip install -r backend\requirements.txt
+copy /y backend\requirements.txt .venv\.requirements.stamp >nul
 
-rem 4. build frontend once
-if exist frontend\dist goto :fe_ok
-echo  [3/4] Building frontend, 2-5 min...
+:CHECK_FRONTEND
+set NEED_BUILD=0
+if not exist "frontend\node_modules" set NEED_BUILD=1
+powershell -NoProfile -Command "if (Test-Path 'frontend\dist\index.html') { $newest = Get-ChildItem -Recurse -File -Path frontend\src, frontend\package.json -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if ($newest -and $newest.LastWriteTime -gt (Get-Item 'frontend\dist\index.html').LastWriteTime) { exit 1 } else { exit 0 } } else { exit 1 }"
+if errorlevel 1 set NEED_BUILD=1
+if not "%NEED_BUILD%"=="1" goto START
+
+echo [Frontend] Code changed or build missing, rebuilding...
 pushd frontend
-call npm install --no-audit --no-fund >nul 2>nul
-call npm run build >nul 2>nul
+if not exist "node_modules" call npm install
+call npm run build
 popd
-:fe_ok
 
-rem 5. auto clean port 8000 if stale python instance running
-netstat -ano | findstr ":8000 " | findstr "LISTENING" >nul 2>nul
-if errorlevel 1 goto :port_ok
-echo  [INFO] Port 8000 is busy, closing old instance...
-for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":8000 " ^| findstr "LISTENING"') do call :kill_port %%p
-timeout /t 2 /nobreak >nul
-:port_ok
-
-echo  [4/4] Starting server, browser will open http://localhost:8000
-echo        close this window to stop
-start "" /b cmd /c "timeout /t 4 /nobreak >nul & start http://localhost:8000"
-.venv\Scripts\python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
-pause
-goto :eof
-
-:kill_port
-tasklist /FI "PID eq %1" /FO CSV /NH | findstr /i "python" >nul 2>nul
-if errorlevel 1 goto :eof
-taskkill /F /PID %1 >nul 2>nul
-goto :eof
+:START
+echo [Start] Launching at http://localhost:8000 ...
+start "" http://localhost:8000
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir backend

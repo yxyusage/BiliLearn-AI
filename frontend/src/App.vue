@@ -10,8 +10,10 @@
         <el-menu mode="horizontal" :default-active="activeMenu" router class="nav-menu">
           <el-menu-item index="/">生成笔记</el-menu-item>
           <el-menu-item index="/history">历史笔记</el-menu-item>
+          <el-menu-item index="/review">复习中心</el-menu-item>
+          <el-menu-item index="/stats">学习数据</el-menu-item>
           <el-menu-item index="/collections">合集任务</el-menu-item>
-          <el-menu-item index="/config">模型配置</el-menu-item>
+          <el-menu-item index="/config">设置</el-menu-item>
         </el-menu>
         <el-tooltip :content="isDark ? '切换到浅色模式' : '切换到深色模式'" placement="bottom">
           <el-button class="theme-btn" circle text @click="toggleTheme">
@@ -35,6 +37,8 @@ export default {
     activeMenu() {
       var path = this.$route.path
       if (path.indexOf('/history') === 0) return '/history'
+      if (path.indexOf('/review') === 0) return '/review'
+      if (path.indexOf('/stats') === 0) return '/stats'
       if (path.indexOf('/config') === 0) return '/config'
       if (path.indexOf('/collections') === 0) return '/collections'
       return '/'
@@ -60,20 +64,16 @@ export default {
   position: sticky;
   top: 0;
   z-index: 100;
-  background: rgba(255, 255, 255, .75);
+  background: color-mix(in srgb, var(--c-bg-elev) 82%, transparent);
   backdrop-filter: blur(14px) saturate(1.5);
   -webkit-backdrop-filter: blur(14px) saturate(1.5);
-  border-bottom: 1px solid rgba(0, 0, 0, .05);
+  border-bottom: 1px solid var(--c-border);
   padding: 0 24px;
-}
-html.dark .app-header {
-  background: rgba(15, 17, 20, .72);
-  border-bottom: 1px solid rgba(255, 255, 255, .06);
 }
 .logo { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .logo-icon { font-size: 22px; }
-.logo-text { font-size: 18px; font-weight: 700; color: #303133; }
-.logo-sub { font-size: 12px; color: #909399; }
+.logo-text { font-size: 18px; font-weight: 700; color: var(--c-text); }
+.logo-sub { font-size: 12px; color: var(--c-text-3); }
 .nav-menu { border-bottom: none; }
 .header-right { display: flex; align-items: center; gap: 8px; }
 .theme-btn { font-size: 16px; }

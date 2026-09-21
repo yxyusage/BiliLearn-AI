@@ -20,9 +20,17 @@
 | 🩺 AI 复盘 | 基于错题自动分析薄弱点，给出复习优先级与对应视频片段 |
 | 🔁 复习计划 | 按艾宾浩斯遗忘曲线自动生成复习时间表（1/2/4/7/15/30 天） |
 | 🔤 英语专项 | 听力原文精校、生词提取（音标/释义/原句/时间戳）、连读/弱读/失去爆破语音现象标注、Anki 卡片导出 |
+| 🎧 英语听写填空 | 从原视频字幕智能挖空（实词/短语/时态），先听后填、即时判分，附提示与译文（可开关） |
 | 📚 合集批量 | 后台异步队列逐集生成、进度实时展示、已完成集复用缓存、全课程知识图谱（节点点击跨集跳转）+ 考点地图 |
 | ➗ 公式识别 | 关键帧提取（无需 ffmpeg）+ 视觉大模型识别板书/课件公式，自动转换 LaTeX |
-| 🌗 深浅主题 | 浅色/深色模式一键切换，自动记忆 |
+| 🌗 三套主题配色 | 纸墨青/海盐蓝/秋日橙三套配色 × 深浅模式，一键切换自动记忆 |
+| 🙋「没懂」AI 换讲 | 笔记任意小节打点提问，AI 换一种更通俗的讲法，可标记已解决 |
+| 🧭 学前诊断 | 打开合集后续视频前，先抽测前面几集的先修知识点，给出「可跳过 / 需先复习」建议（可开关） |
+| ✨ 同类变式题 | 自测题旁一键生成 AI 变式（换数字/换情境），同一知识点多角度巩固（可开关） |
+| 🔁 SM-2 动态复习 | 复习中心四档自评（重来/困难/良好/简单），按 SM-2 算法自动重排下次复习 |
+| 📊 学习数据仪表盘 | 近 14 天产出、学科分布、错题掌握度、复习节奏，ECharts 可视化一屏掌握 |
+| 📑 侧边吸顶目录 | 目录固定在笔记侧边，滚动时不消失，直达任意知识点 |
+| 📱 手机访问 + PWA | 同一局域网手机浏览器直接访问；可添加到主屏幕、离线看已缓存笔记 |
 | ➗ 数理专项 | 定理按「定义→推导→适用条件→例题→易错点」整理，公式 LaTeX 输出 |
 | 💻 计算机专项 | 代码片段提取、逻辑拆解、拓展练手 |
 | 📤 多格式导出 | Markdown / PDF / Word(DOCX 含关键帧截图) / XMind / Anki(.apkg) / CSV |
@@ -94,8 +102,13 @@ npm run dev                     # http://localhost:5173
 
 ### 启动后干什么
 
-1. 打开 http://localhost:8000，点右上角「模型配置」→ 填一个 API Key（DeepSeek 最便宜，点输入框旁的「获取 Key ↗」直达申请页）
+1. 打开 http://localhost:8000，点右上角「设置」→ 填一个 API Key（DeepSeek 最便宜，点输入框旁的「获取 Key ↗」直达申请页）
 2. 回首页粘贴B站链接 → 解析 → 生成笔记，搞定
+
+### 📱 手机也能用（同一局域网）
+
+电脑启动服务后，手机连同一 WiFi / 热点，浏览器访问 `http://电脑IP:8000` 即可（PWA 支持「添加到主屏幕」）。
+详细步骤（查 IP、防火墙放行、常见问题）见 [docs/手机访问指南.md](docs/手机访问指南.md)。
 
 ### 启动遇到问题？
 
@@ -107,15 +120,15 @@ npm run dev                     # http://localhost:5173
 | 8000 端口被占用 | 关闭占用程序，或改用 `uvicorn backend.app.main:app --port 8080` |
 | 语音转写下载模型慢 | 脚本已自动使用国内镜像，无需处理 |
 
-## 🔑 模型配置
+## 🔑 模型与功能设置
 
-打开网页右上角「模型配置」，选择供应商并填写 API Key（**仅保存在本地 SQLite，不上传**），可点击「测试连接」验证。
+打开网页右上角「**设置**」，可配置：模型供应商与 API Key、英语听写/变式题/学前诊断三个功能开关、界面配色（纸墨青/海盐蓝/秋日橙 × 深浅模式）。
 
 | 供应商 | API Key 获取 | 默认模型 | 说明 |
 | --- | --- | --- | --- |
 | DeepSeek | https://platform.deepseek.com | deepseek-chat | 性价比高，推荐 |
-| Kimi | https://platform.moonshot.cn | moonshot-v1-32k | 32k 大窗口，适合长视频 |
-| 通义千问 | 阿里云百炼 DashScope（开通兼容模式） | qwen-plus | 国内生态 |
+| Kimi | https://platform.moonshot.cn | kimi-k2.6 | 大窗口，适合长视频 |
+| 通义千问 | 阿里云百炼 DashScope | qwen-plus | 国内生态 |
 | Ollama | 本地，无需 Key | qwen2.5:7b | `ollama serve` 后 `ollama pull qwen2.5:7b` |
 
 > 环境变量方式：复制 `.env.example` 为 `backend/.env` 并填写，效果相同。
@@ -125,10 +138,13 @@ npm run dev                     # http://localhost:5173
 1. **解析视频**：首页粘贴 B站视频/合集链接，选择课程类型（通用/英语/数理/计算机/文科），点击「解析视频」
 2. **生成笔记**：确认字幕已获取后点击「生成笔记」，AI 分段生成带时间戳的结构化笔记（约 1-5 分钟，可关闭页面）
 3. **复习笔记**：笔记页内嵌B站播放器，点击任意时间戳或脑图节点自动跳转；支持「左右分栏（分隔条可拖动）/ 视频置顶」两种布局，下滑看笔记时视频始终吸顶
-4. **自测检验**：点击「生成本课自测题」后题目自动嵌入各章节下方，逐题点「判断」由 AI 批改并讲解，错题自动入错题本
-5. **AI 答疑**：右上角「💬 AI 答疑」抽屉，基于当前笔记上下文随时提问
-6. **薄弱复盘**：「复盘」页生成薄弱点分析（含优先级与复习片段）+ 艾宾浩斯复习计划
-7. **导出**：笔记型 Markdown（含目录）/ 结构化 PDF / Anki 卡片 / CSV
+4. **自测检验**：点击「生成本课自测题」后题目自动嵌入各章节下方，逐题点「判断」由 AI 批改并讲解，错题自动入错题本；旁边「✨ 变式题」可换数字/换情境再练
+5. **没懂换讲**：任意小节点「🙋 没懂」，AI 用更通俗的方式重讲，理解了就标记解决
+6. **英语听写**：英语笔记「听写」页签一键生成挖空听写，先听后填即时判分
+7. **AI 答疑**：右上角「💬 AI 答疑」抽屉，基于当前笔记上下文随时提问
+8. **薄弱复盘**：「复盘」页生成薄弱点分析（含优先级与复习片段）+ 复习计划；复习中心学完自评（重来/困难/良好/简单），系统按 SM-2 重排下次复习
+9. **学习数据**：顶部「学习数据」查看产出与错题掌握趋势
+10. **导出**：笔记型 Markdown（含目录）/ 结构化 PDF / Word(DOCX 含关键帧) / XMind / Anki 卡片 / CSV
 
 ### 输出文件在哪里
 
@@ -144,28 +160,34 @@ BiliLearn-AI/
 │   ├── app/
 │   │   ├── main.py            # FastAPI 主应用
 │   │   ├── config.py          # 配置（环境变量）
-│   │   ├── database.py        # SQLite 连接
-│   │   ├── models.py          # 数据模型
+│   │   ├── database.py        # SQLite 连接 + 自动迁移
+│   │   ├── models.py          # 数据模型（Note/Quiz/ReviewPlan/ConfusionPoint）
 │   │   ├── schemas.py         # 请求/响应模型
-│   │   ├── routers/           # video/notes/quiz/review/config/export
+│   │   ├── routers/           # video/notes/quiz/review/config/export/stats/collections
 │   │   ├── services/
 │   │   │   ├── bilibili.py    # 视频解析 + 字幕提取
 │   │   │   ├── whisper.py     # 本地离线转写（可选）
-│   │   │   ├── prompts.py     # 学科 Prompt 模板库
-│   │   │   ├── note_generator.py  # 分段+汇总笔记生成
-│   │   │   ├── quiz_generator.py  # 阶梯自测
-│   │   │   ├── review.py      # 复盘 + 艾宾浩斯计划
-│   │   │   ├── export.py      # Markdown/PDF/Anki 导出
+│   │   │   ├── prompts.py     # 学科 Prompt 模板库（含听写/变式/换讲）
+│   │   │   ├── note_generator.py  # 分段+汇总笔记生成（教材精编结构）
+│   │   │   ├── quiz_generator.py  # 阶梯自测 + 变式题
+│   │   │   ├── features.py    # 听写/变式/换讲 功能服务
+│   │   │   ├── review.py      # 复盘 + SM-2 动态复习计划
+│   │   │   ├── export.py      # Markdown/PDF/Word/Anki 导出
 │   │   │   └── llm/           # 大模型统一封装（DeepSeek/Kimi/Qwen/Ollama）
 │   │   └── utils/timestamp.py # HH:MM:SS 时间戳工具
 │   └── requirements.txt
 ├── frontend/
+│   ├── public/                # PWA manifest + Service Worker + 图标
 │   └── src/
-│       ├── views/             # Home/History/Config/NoteDetail
-│       └── components/        # VideoPlayer/MermaidView
+│       ├── views/             # Home/History/NoteDetail/Dashboard/Review/Config/Collections
+│       ├── components/        # VideoPlayer/MermaidView/QuizCard/DictationCard/LatexText
+│       └── utils/theme.js     # 三套配色主题系统
+├── docs/
+│   ├── API.md                 # 接口文档
+│   └── 手机访问指南.md         # 手机访问 + 防火墙放行教程
 ├── docker-compose.yml
 ├── Dockerfile
-└── docs/API.md                # 接口文档
+└── start.bat / start.sh       # 一键启动脚本
 ```
 
 ## ✅ 真机验证
@@ -179,6 +201,7 @@ BiliLearn-AI/
 - Markdown / PDF / Anki(.apkg) / CSV 四种导出全部正常
 - 箭头式脑图（graph TD，节点含时间戳可点击跳转）、AI 答疑（含图示化回答）、双布局拖动分栏、深浅主题均已实测通过
 - 合集批量队列、全课程知识图谱/考点地图、多模态公式识别（qwen-vl-plus）已完成端到端联调
+- **v1.6 实测链路**：英语听写 12 题挖空生成（含提示/译文/时间戳）✅、变式题（AI 换题）✅、没懂换讲（打点→换讲→解决）✅、SM-2 评分重排（良好→次日复习）✅、学前诊断/学习数据仪表盘（4 统计卡 + 4 图表）✅、三套配色深色浅色截图核验 ✅、PWA manifest + Service Worker 产物 ✅
 
 ## ❓ 常见问题
 
@@ -223,11 +246,15 @@ export HF_ENDPOINT=https://hf-mirror.com
 - [x] 阶段3 进阶：AI 薄弱复盘、艾宾浩斯复习计划、Kimi/通义千问/Ollama 支持
 - [x] 阶段3 完整：合集批量异步队列、全课程知识图谱 + 考点地图、关键帧板书/公式多模态识别（LaTeX）
 - [x] 阶段4 工程化：GitHub Actions CI、CHANGELOG、Docker 健康检查、README 完善
-- [ ] 持续优化：播放进度高亮当前知识点、笔记 LaTeX 渲染（KaTeX）、代码高亮、双语对照、移动端深度适配
+- [x] 阶段5 学习闭环增强：英语听写填空、同类变式题、没懂 AI 换讲、学前诊断、SM-2 动态复习、学习数据仪表盘
+- [x] 阶段5 体验优化：三套主题配色、侧边吸顶目录、介绍折叠、功能开关、PWA 手机访问基础
+- [ ] 持续优化：播放进度高亮当前知识点、代码高亮、双语对照、移动端深度适配（点选式刷题交互）
 
 ## ⚖️ 合规声明
 
 本项目仅用于个人学习研究：不缓存、不传播完整视频，仅处理字幕文本与生成的笔记内容；请勿用于商业用途，请尊重 UP 主与平台的版权。
+
+> 所有 API Key、B站 Cookie 仅保存在本地 SQLite（`backend/data/`，已被 `.gitignore` 排除），不会上传 GitHub 或任何服务器。
 
 ## 📄 License
 

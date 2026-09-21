@@ -1,16 +1,12 @@
-# BiliLearn-AI 后端依赖
-fastapi>=0.110
-uvicorn[standard]>=0.29
-pydantic>=2.6
-pydantic-settings>=2.2
-sqlalchemy>=2.0
-httpx>=0.27
-yt-dlp>=2024.4.9
-python-multipart>=0.0.9
-reportlab>=4.1
-genanki>=0.13
-python-docx>=1.1
-python-docx>=1.1
-
-# 可选：本地离线语音转写（体积较大，按需安装，需 ffmpeg）
-# faster-whisper>=1.0.3
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+sqlalchemy==2.0.35
+pydantic==2.9.2
+httpx==0.27.2
+yt-dlp>=2025.1.15
+av>=12.0.0
+python-docx==1.1.2
+fpdf2==2.7.9
+python-multipart==0.0.12
+openpyxl==3.1.5
+faster-whisper==1.0.3

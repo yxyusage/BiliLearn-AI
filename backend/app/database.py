@@ -42,6 +42,29 @@ def run_migrations() -> None:
         if note_cols and "keyframes" not in note_cols:
             conn.execute(text("ALTER TABLE notes ADD COLUMN keyframes TEXT DEFAULT ''"))
             conn.commit()
+        for col, ddl in (
+            ("qtype", "ALTER TABLE wrong_answers ADD COLUMN qtype TEXT DEFAULT ''"),
+            ("status", "ALTER TABLE wrong_answers ADD COLUMN status TEXT DEFAULT 'active'"),
+            ("wrong_count", "ALTER TABLE wrong_answers ADD COLUMN wrong_count INTEGER DEFAULT 1"),
+            ("updated_at", "ALTER TABLE wrong_answers ADD COLUMN updated_at TIMESTAMP"),
+        ):
+            if cols and col not in cols:
+                conn.execute(text(ddl))
+                conn.commit()
+        # v1.6.0：notes.dictations（英语听写）与 review_plan SM-2 状态列
+        if note_cols and "dictations" not in note_cols:
+            conn.execute(text("ALTER TABLE notes ADD COLUMN dictations TEXT DEFAULT ''"))
+            conn.commit()
+        rp_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(review_plan)"))]
+        for col, ddl in (
+            ("repetitions", "ALTER TABLE review_plan ADD COLUMN repetitions INTEGER DEFAULT 0"),
+            ("interval_days", "ALTER TABLE review_plan ADD COLUMN interval_days INTEGER DEFAULT 0"),
+            ("ease_factor", "ALTER TABLE review_plan ADD COLUMN ease_factor REAL DEFAULT 2.5"),
+            ("last_reviewed", "ALTER TABLE review_plan ADD COLUMN last_reviewed TEXT DEFAULT ''"),
+        ):
+            if rp_cols and col not in rp_cols:
+                conn.execute(text(ddl))
+                conn.commit()
 
 
 def get_db():

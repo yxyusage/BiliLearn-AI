@@ -39,10 +39,20 @@ def hms_to_seconds(hms: str) -> int:
 
 
 def normalize_hms(value) -> str:
-    """把任意时间表示规范化为 HH:MM:SS。"""
+    """把时间表示规范化为 HH:MM:SS；无法识别（模型编造的文字时间戳）时返回空串。"""
     if isinstance(value, (int, float)):
-        return seconds_to_hms(value)
-    return seconds_to_hms(hms_to_seconds(str(value)))
+        return seconds_to_hms(value) if value >= 0 else ""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if _TIME_RE.match(text):
+        return seconds_to_hms(hms_to_seconds(text))
+    if re.fullmatch(r"\d+(?:\.\d+)?", text):
+        return seconds_to_hms(int(float(text)))
+    parts = [p for p in re.split(r"[:：]", text) if p != ""]
+    if 1 < len(parts) <= 3 and all(re.fullmatch(r"\d+(?:\.\d+)?", p) for p in parts):
+        return seconds_to_hms(hms_to_seconds(text))
+    return ""
 
 
 def timestamp_from_text(text: str) -> str:

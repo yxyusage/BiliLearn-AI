@@ -21,3 +21,4 @@ backend/.env
 *.log
 .idea/
 .vscode/
+.preview/

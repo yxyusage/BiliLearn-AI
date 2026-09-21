@@ -27,6 +27,8 @@
         <el-table-column label="状态" width="90">
           <template #default="scope">
             <el-tag v-if="scope.row.status === 'running'" type="warning">进行中</el-tag>
+            <el-tag v-else-if="scope.row.status === 'cancelling'" type="info">取消中</el-tag>
+            <el-tag v-else-if="scope.row.status === 'cancelled'" type="info">已取消</el-tag>
             <el-tag v-else-if="scope.row.status === 'done'" type="success">完成</el-tag>
             <el-tag v-else-if="scope.row.status === 'partial'" type="warning">部分失败</el-tag>
             <el-tag v-else type="danger">失败</el-tag>
@@ -35,11 +37,16 @@
         <el-table-column label="图谱" width="80">
           <template #default="scope">
             <el-tag v-if="scope.row.has_map" type="info" size="small">已生成</el-tag>
-            <span v-else style="color:#909399">—</span>
+            <span v-else style="color:var(--c-text-3)">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="90">
+        <el-table-column label="操作" width="130">
           <template #default="scope">
+            <el-button
+              v-if="scope.row.status === 'running'"
+              size="small" type="warning" text
+              @click="cancelJob(scope.row)"
+            >取消</el-button>
             <el-popconfirm title="删除该任务（不删除已生成笔记）？" @confirm="removeJob(scope.row)">
               <template #reference>
                 <el-button size="small" type="danger" text>删除</el-button>
@@ -57,9 +64,16 @@
           <el-button size="small" text @click="$router.push('/collections')">← 返回列表</el-button>
           <h2 class="detail-title">{{ job.title }}</h2>
           <el-tag v-if="job.status === 'running'" type="warning">进行中（正在处理 P{{ job.current_page }}）</el-tag>
+          <el-tag v-else-if="job.status === 'cancelling'" type="info">取消中（当前在处理的集完成后停止）</el-tag>
+          <el-tag v-else-if="job.status === 'cancelled'" type="info">已取消</el-tag>
           <el-tag v-else-if="job.status === 'done'" type="success">全部完成</el-tag>
           <el-tag v-else-if="job.status === 'partial'" type="warning">部分失败</el-tag>
           <el-tag v-else type="danger">失败</el-tag>
+          <el-button
+            v-if="job.status === 'running'"
+            size="small" type="warning" plain
+            @click="cancelJob(job)"
+          >取消任务</el-button>
         </div>
         <el-progress
           :percentage="job.total ? Math.round((job.done_count + job.failed_count) * 100 / job.total) : 0"
@@ -81,8 +95,12 @@
               <div v-for="(r, i) in job.results" :key="i" class="result-item">
                 <span class="result-page">P{{ r.page }}</span>
                 <el-link v-if="r.status === 'done'" type="primary" @click="openNote(r)">{{ r.title }}</el-link>
+                <el-tooltip v-else-if="r.error" :content="r.error" placement="top" :show-after="200">
+                  <span class="result-title result-failed">{{ r.title }}（失败，悬停看原因）</span>
+                </el-tooltip>
                 <span v-else class="result-title">{{ r.title }}</span>
-                <el-tag v-if="r.status === 'done'" type="success" size="small">完成</el-tag>
+                <el-tag v-if="r.status === 'done' && r.reused" type="info" size="small">复用</el-tag>
+                <el-tag v-else-if="r.status === 'done'" type="success" size="small">完成</el-tag>
                 <el-tag v-else type="danger" size="small">失败</el-tag>
               </div>
             </div>
@@ -184,7 +202,7 @@ export default {
     async loadJob() {
       try {
         this.job = await api.get('/collections/' + this.jobId)
-        if (this.job.status === 'running') {
+        if (this.job.status === 'running' || this.job.status === 'cancelling') {
           if (!this.timer) this.timer = setInterval(this.loadJob, 4000)
         } else if (this.timer) {
           clearInterval(this.timer)
@@ -230,6 +248,16 @@ export default {
         ElMessage.warning('该集笔记尚未生成')
       }
     },
+    async cancelJob(row) {
+      try {
+        await api.post('/collections/' + row.id + '/cancel')
+        ElMessage.success('已请求取消，正在处理的集完成后停止')
+        if (this.jobId) this.loadJob()
+        else this.loadJobs()
+      } catch (e) {
+        ElMessage.error(e.response?.data?.detail || e.message)
+      }
+    },
     async removeJob(row) {
       try {
         await api.delete('/collections/' + row.id)
@@ -246,14 +274,15 @@ export default {
 <style scoped>
 .col-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .col-head h2 { margin: 0; }
-.progress-text { color: #909399; font-size: 12px; margin-top: 4px; }
+.progress-text { color: var(--c-text-3); font-size: 12px; margin-top: 4px; }
 .detail-head { margin-bottom: 16px; }
 .detail-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .detail-title { margin: 0; font-size: 17px; }
 .map-actions { margin-top: 12px; }
 .result-list { max-height: 420px; overflow-y: auto; }
-.result-item { display: flex; align-items: center; gap: 8px; padding: 6px 2px; border-bottom: 1px dashed #ebeef5; font-size: 13px; }
-.result-page { color: #409eff; font-weight: 600; flex-shrink: 0; }
-.result-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #606266; }
+.result-item { display: flex; align-items: center; gap: 8px; padding: 6px 2px; border-bottom: 1px dashed var(--c-border); font-size: 13px; }
+.result-page { color: var(--c-primary); font-weight: 600; flex-shrink: 0; }
+.result-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-text-2); }
+.result-failed { color: var(--c-danger); cursor: help; }
 h4 { margin: 0 0 10px; }
 </style>

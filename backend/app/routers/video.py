@@ -49,7 +49,7 @@ def parse_video(req: ParseRequest, db: Session = Depends(get_db)):
     whisper_on = whisper_enabled(db)
     hint = ""
     if not subtitle_available and not whisper_on:
-        hint = "未获取到官方字幕。可在「配置」页开启本地语音转写后重试（需安装 ffmpeg 与 faster-whisper）。"
+        hint = "未获取到官方字幕。可在「配置」页开启本地语音转写后重试（需 pip install faster-whisper，无需 ffmpeg）。"
     return {
         "bvid": bvid,
         "title": info["title"],

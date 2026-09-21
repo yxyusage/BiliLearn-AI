@@ -1,0 +1,25 @@
+{
+  "name": "BiliLearn-AI - B站全学科AI学习助手",
+  "short_name": "BiliLearn",
+  "description": "B站视频转教材式笔记、自测、复习与错题本",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f5f1",
+  "theme_color": "#0d7e70",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

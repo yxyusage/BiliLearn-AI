@@ -9,7 +9,8 @@ PROVIDERS: Dict[str, Dict[str, Any]] = {
     "deepseek": {
         "name": "DeepSeek",
         "base_url": "https://api.deepseek.com/v1",
-        "default_model": "deepseek-chat",
+        "default_model": "deepseek-v4-pro",
+        "vision_model": "deepseek-flash",
         "kind": "openai",
         "need_key": True,
         "key_url": "https://platform.deepseek.com/api_keys",
@@ -17,7 +18,8 @@ PROVIDERS: Dict[str, Dict[str, Any]] = {
     "kimi": {
         "name": "Kimi (Moonshot)",
         "base_url": "https://api.moonshot.cn/v1",
-        "default_model": "moonshot-v1-32k",
+        "default_model": "kimi-k2.6",
+        "vision_model": "kimi-k2.6",
         "kind": "openai",
         "need_key": True,
         "key_url": "https://platform.moonshot.cn/console/api-keys",
@@ -26,6 +28,7 @@ PROVIDERS: Dict[str, Dict[str, Any]] = {
         "name": "通义千问",
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "default_model": "qwen-plus",
+        "vision_model": "qwen-vl-max-latest",
         "kind": "openai",
         "need_key": True,
         "key_url": "https://bailian.console.aliyun.com/?apiKey=1",
@@ -34,6 +37,7 @@ PROVIDERS: Dict[str, Dict[str, Any]] = {
         "name": "Ollama 本地模型",
         "base_url": "http://localhost:11434",
         "default_model": "qwen2.5:7b",
+        "vision_model": "",
         "kind": "ollama",
         "need_key": False,
         "key_url": "https://ollama.com/download",
@@ -41,11 +45,8 @@ PROVIDERS: Dict[str, Dict[str, Any]] = {
 }
 
 
-# 支持视觉输入的模型（按供应商）
-VISION_MODELS = {
-    "qwen": "qwen-vl-plus",
-    "kimi": "moonshot-v1-8k-vision-preview",
-}
+# 支持视觉输入的模型（按供应商），用于板书/公式截图识别
+VISION_MODELS = {p: info.get("vision_model", "") for p, info in PROVIDERS.items() if info.get("vision_model")}
 
 
 def build_llm(

@@ -12,6 +12,13 @@ import { applyTheme } from './utils/theme'
 
 applyTheme()
 
+// PWA：仅生产构建注册 Service Worker（本地开发不干扰 HMR）
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('./sw.js').catch(function () { /* 非安全上下文或不可用时静默跳过 */ })
+  })
+}
+
 const app = createApp(App)
 app.use(createPinia())
 app.use(router)
