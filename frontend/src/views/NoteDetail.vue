@@ -132,28 +132,31 @@
                 </div>
 
                 <div class="note-flex">
-                  <!-- 右侧固定竖排目录 + 阅读进度条 -->
+                  <!-- 右侧固定竖排目录 + 阅读进度条（默认收起，悬停展开） -->
                   <aside class="toc-rail">
-                    <div class="toc-rail-inner">
-                      <div class="toc-rail-title">📑 目录</div>
-                      <div v-for="(ch, ci) in chapters" :key="ci" class="toc-chapter">
-                        <div class="toc-chapter-head" @click="scrollToChapter(ci)">
-                          <span class="toc-no">{{ ci + 1 }}</span>
-                          <span class="toc-name">{{ ch.title }}</span>
-                        </div>
-                        <div
-                          v-for="(sec, si) in (ch.sections || [])"
-                          :key="si"
-                          class="toc-sec"
-                          @click="scrollToSection(ci, si)"
-                        >
-                          <span class="toc-dot" :style="{ background: 'var(--c-badge-' + sec.type + ')' }"></span>
-                          <span class="toc-sec-name">{{ sec.heading }}</span>
+                    <div class="toc-rail-handle">📑 目录</div>
+                    <div class="toc-rail-body">
+                      <div class="toc-rail-inner">
+                        <div class="toc-rail-title">📑 目录</div>
+                        <div v-for="(ch, ci) in chapters" :key="ci" class="toc-chapter">
+                          <div class="toc-chapter-head" @click="scrollToChapter(ci)">
+                            <span class="toc-no">{{ ci + 1 }}</span>
+                            <span class="toc-name">{{ ch.title }}</span>
+                          </div>
+                          <div
+                            v-for="(sec, si) in (ch.sections || [])"
+                            :key="si"
+                            class="toc-sec"
+                            @click="scrollToSection(ci, si)"
+                          >
+                            <span class="toc-dot" :style="{ background: 'var(--c-badge-' + sec.type + ')' }"></span>
+                            <span class="toc-sec-name">{{ sec.heading }}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div class="read-progress" title="阅读进度">
-                      <div class="read-progress-fill" :style="{ height: readingProgress + '%' }"></div>
+                      <div class="read-progress" title="阅读进度">
+                        <div class="read-progress-fill" :style="{ height: readingProgress + '%' }"></div>
+                      </div>
                     </div>
                   </aside>
 
@@ -1417,9 +1420,20 @@ html.dark .diag-head { color: var(--c-primary); }
 .note-main, .diagnosis-card, .intro-collapse, .quiz-entry { margin-left: 0; }
 /* 右侧固定竖排目录 + 阅读进度条 */
 .toc-rail {
-  position: fixed; right: 14px; top: 200px; z-index: 30;
-  display: flex; align-items: stretch; gap: 8px;
+  position: fixed; right: 0; top: 200px; z-index: 30;
+  display: flex; align-items: stretch;
+  transition: transform .25s ease;
+  transform: translateX(calc(100% - 30px));
 }
+.toc-rail:hover { transform: translateX(0); }
+.toc-rail-handle {
+  flex-shrink: 0; width: 30px; display: flex; align-items: center; justify-content: center;
+  writing-mode: vertical-rl; font-size: 12px; font-weight: 600; letter-spacing: 2px;
+  background: var(--c-primary); color: #fff; border-radius: 8px 0 0 8px;
+  cursor: pointer; user-select: none;
+}
+html.dark .toc-rail-handle { color: #08231f; }
+.toc-rail-body { display: flex; align-items: stretch; gap: 8px; }
 .toc-rail-inner {
   width: 176px; max-height: calc(100vh - 240px); overflow-y: auto;
   border: 1px solid var(--c-border-light); border-radius: 10px;
