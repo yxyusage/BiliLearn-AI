@@ -132,20 +132,30 @@
                 </div>
 
                 <div class="note-flex">
-                  <!-- 横向吸顶目录 -->
-                  <nav class="toc-bar">
-                    <span class="toc-bar-title">📑 目录</span>
-                    <button
-                      v-for="(ch, ci) in chapters"
-                      :key="ci"
-                      class="toc-chip"
-                      @click="scrollToChapter(ci)"
-                    >
-                      <span class="toc-chip-no">{{ ci + 1 }}</span>
-                      <span class="toc-chip-name">{{ ch.title }}</span>
-                      <TimeLink v-if="ch.time_stamp" :time="ch.time_stamp" @jump.stop="jump" />
-                    </button>
-                  </nav>
+                  <!-- 右侧固定竖排目录 + 阅读进度条 -->
+                  <aside class="toc-rail">
+                    <div class="toc-rail-inner">
+                      <div class="toc-rail-title">📑 目录</div>
+                      <div v-for="(ch, ci) in chapters" :key="ci" class="toc-chapter">
+                        <div class="toc-chapter-head" @click="scrollToChapter(ci)">
+                          <span class="toc-no">{{ ci + 1 }}</span>
+                          <span class="toc-name">{{ ch.title }}</span>
+                        </div>
+                        <div
+                          v-for="(sec, si) in (ch.sections || [])"
+                          :key="si"
+                          class="toc-sec"
+                          @click="scrollToSection(ci, si)"
+                        >
+                          <span class="toc-dot" :style="{ background: 'var(--c-badge-' + sec.type + ')' }"></span>
+                          <span class="toc-sec-name">{{ sec.heading }}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="read-progress" title="阅读进度">
+                      <div class="read-progress-fill" :style="{ height: readingProgress + '%' }"></div>
+                    </div>
+                  </aside>
 
                   <!-- 正文 -->
                   <div class="note-main">
@@ -593,6 +603,7 @@ export default {
       layoutMode: 'split',
       leftWidth: 52,
       dragging: false,
+      readingProgress: 0,
       // 自测
       quizQuestions: [],
       chapterQuestions: [],
@@ -699,10 +710,21 @@ export default {
     this.loadConfig()
     this.load()
   },
+  mounted() {
+    this.$nextTick(function () {
+      var cp = document.querySelector('.content-panel')
+      if (cp) {
+        this._cp = cp
+        cp.addEventListener('scroll', this.onReadScroll, { passive: true })
+        this.onReadScroll()
+      }
+    })
+  },
   beforeUnmount() {
     this.stopPolling()
     this.stopDrag()
     this.stopChat()
+    if (this._cp) this._cp.removeEventListener('scroll', this.onReadScroll)
   },
   methods: {
     async loadConfig() {
@@ -828,6 +850,12 @@ export default {
     scrollToSection(ci, si) {
       var el = document.getElementById('sec-' + ci + '-' + si)
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    },
+    onReadScroll() {
+      var cp = this._cp
+      if (!cp) return
+      var max = cp.scrollHeight - cp.clientHeight
+      this.readingProgress = max > 0 ? Math.min(100, Math.round(cp.scrollTop / max * 100)) : 0
     },
     startPolling() {
       if (this.timer) return
@@ -1387,36 +1415,47 @@ html.dark .diag-head { color: var(--c-primary); }
 /* 笔记：横向吸顶目录 + 正文占满 */
 .note-flex { display: block; }
 .note-main, .diagnosis-card, .intro-collapse, .quiz-entry { margin-left: 0; }
-/* tab 栏与目录条一起吸顶 */
-.tabs-card { position: sticky; top: 0; z-index: 25; overflow: visible; }
-:deep(.el-tabs__content) { overflow: visible; }
-.toc-bar {
-  position: sticky; top: 46px; z-index: 24;
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 12px; margin-bottom: 14px;
-  background: var(--c-bg-elev); border: 1px solid var(--c-border-light);
-  border-radius: 10px; overflow-x: auto; scrollbar-width: thin;
+/* 右侧固定竖排目录 + 阅读进度条 */
+.toc-rail {
+  position: fixed; right: 14px; top: 200px; z-index: 30;
+  display: flex; align-items: stretch; gap: 8px;
 }
-.toc-bar-title {
-  flex-shrink: 0; font-size: 13px; font-weight: 700; color: var(--c-text);
-  padding-right: 4px; border-right: 1px solid var(--c-border);
+.toc-rail-inner {
+  width: 176px; max-height: calc(100vh - 240px); overflow-y: auto;
+  border: 1px solid var(--c-border-light); border-radius: 10px;
+  background: var(--c-bg-elev); padding: 10px 8px;
+  scrollbar-width: thin;
 }
-.toc-chip {
-  flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px;
-  padding: 6px 12px; border-radius: 999px;
-  background: var(--c-bg-soft); border: 1px solid var(--c-border);
-  color: var(--c-text); font-size: 13px; white-space: nowrap; cursor: pointer;
-  transition: all .12s;
+.toc-rail-title { font-size: 13px; font-weight: 700; color: var(--c-text); padding: 0 6px 8px; border-bottom: 1px dashed var(--c-border); margin-bottom: 6px; }
+.toc-chapter { margin-bottom: 2px; }
+.toc-chapter-head {
+  display: flex; align-items: center; gap: 6px; padding: 5px 6px; border-radius: 6px;
+  cursor: pointer; font-size: 13px; font-weight: 600; color: var(--c-text);
+  transition: background .12s;
 }
-.toc-chip:hover { background: var(--c-primary-soft); border-color: var(--c-primary); color: var(--c-primary); }
-.toc-chip-no {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 5px;
+.toc-chapter-head:hover { background: var(--c-bg-soft); color: var(--c-primary); }
+.toc-no {
+  flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+  min-width: 17px; height: 17px; padding: 0 4px; border-radius: 4px;
   background: var(--c-primary); color: #fff; font-size: 11px; font-weight: 700;
 }
-html.dark .toc-chip-no { color: #08231f; }
-.toc-chip-name { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.toc-chip :deep(.time-link) { flex-shrink: 0; font-size: 12px; }
+html.dark .toc-no { color: #08231f; }
+.toc-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.toc-sec {
+  display: flex; align-items: center; gap: 6px; padding: 3px 6px 3px 12px; border-radius: 5px;
+  cursor: pointer; font-size: 12.5px; color: var(--c-text-2); transition: background .12s;
+}
+.toc-sec:hover { background: var(--c-bg-soft); color: var(--c-primary); }
+.toc-dot { flex-shrink: 0; width: 6px; height: 6px; border-radius: 50%; }
+.toc-sec-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.read-progress {
+  width: 5px; border-radius: 3px; background: var(--c-border);
+  position: relative; overflow: hidden; min-height: 280px;
+}
+.read-progress-fill {
+  position: absolute; left: 0; top: 0; width: 100%;
+  background: var(--c-primary); transition: height .12s ease-out;
+}
 
 .chapter { margin-bottom: 26px; }
 .chapter-title {
