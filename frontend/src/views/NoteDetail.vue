@@ -1388,7 +1388,7 @@ html.dark .diag-head { color: var(--c-primary); }
 .note-flex { display: block; }
 .note-main, .diagnosis-card, .intro-collapse, .quiz-entry { margin-left: 0; }
 /* tab 栏与目录条一起吸顶 */
-.tabs-card { position: sticky; top: 0; z-index: 25; }
+.tabs-card { position: sticky; top: 0; z-index: 25; overflow: visible; }
 :deep(.el-tabs__content) { overflow: visible; }
 .toc-bar {
   position: sticky; top: 46px; z-index: 24;
