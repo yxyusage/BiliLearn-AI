@@ -24,6 +24,9 @@
         </el-radio-group>
         <span class="subject-desc">{{ subjectDesc }}</span>
       </div>
+      <div style="margin-top:14px;">
+        <router-link to="/roadmap"><el-button type="warning" plain size="small">🗺️ 不知道从哪集开始？合集线路图：AI 拆模块、标重点、测水平、推荐起点</el-button></router-link>
+      </div>
     </el-card>
 
     <el-card v-if="videoInfo" class="video-card" shadow="never">

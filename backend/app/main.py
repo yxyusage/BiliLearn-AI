@@ -9,7 +9,7 @@ from sqlalchemy import text
 
 from .database import Base, SessionLocal, engine, run_migrations
 from .models import CollectionJob, Note
-from .routers import collections, config, export, notes, quiz, review, stats, video
+from .routers import collections, config, export, notes, quiz, review, roadmap, stats, video
 
 Base.metadata.create_all(bind=engine)
 run_migrations()
@@ -33,6 +33,7 @@ app.include_router(review.router, prefix="/api/review", tags=["复盘"])
 app.include_router(config.router, prefix="/api/config", tags=["配置"])
 app.include_router(export.router, prefix="/api/export", tags=["导出"])
 app.include_router(stats.router, prefix="/api/stats", tags=["统计"])
+app.include_router(roadmap.router, prefix="/api/roadmap", tags=["合集线路图"])
 
 
 @app.on_event("startup")

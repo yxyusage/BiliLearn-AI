@@ -119,3 +119,21 @@ class ConfusionPoint(Base):
     status = Column(String(16), default="open")  # open/closed
     created_at = Column(DateTime, default=_now)
     updated_at = Column(DateTime, default=_now, onupdate=_now)
+
+
+class RoadmapJob(Base):
+    """合集学习线路图任务。"""
+    __tablename__ = "roadmap_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    bvid = Column(String(32), index=True)
+    url = Column(String(1024), default="")
+    title = Column(String(512), default="")
+    status = Column(String(32), default="running")  # running/done/failed
+    total = Column(Integer, default=0)
+    done_count = Column(Integer, default=0)
+    error = Column(Text, default="")
+    result_json = Column(Text, default="")   # 线路图 JSON（模块+标签）
+    quiz_json = Column(Text, default="")     # 自测题 JSON
+    recommend_json = Column(Text, default="")  # 推荐起点 JSON
+    created_at = Column(DateTime, default=_now)

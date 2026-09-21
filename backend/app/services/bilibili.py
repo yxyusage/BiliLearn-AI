@@ -44,6 +44,26 @@ def extract_bvid(url: str) -> str:
     return url
 
 
+def _fetch_pagetitles(bvid: str, cookie: str = "") -> list:
+    """用B站官方API拿多P分P标题，返回 [{page, title, cid}]。"""
+    try:
+        r = httpx.get(
+            "https://api.bilibili.com/x/player/pagelist",
+            params={"bvid": bvid},
+            headers=_make_headers(cookie),
+            timeout=10,
+        )
+        data = r.json()
+        if data.get("code") != 0:
+            return []
+        out = []
+        for it in data.get("data") or []:
+            out.append({"page": it.get("page"), "title": it.get("part") or "", "cid": it.get("cid")})
+        return out
+    except Exception:
+        return []
+
+
 def parse_video(url: str, cookie: str = "") -> dict:
     """解析单视频或合集链接，返回 bvid、标题、分P列表。"""
     bvid = extract_bvid(url)
@@ -79,6 +99,12 @@ def parse_video(url: str, cookie: str = "") -> dict:
             for i, e in enumerate(entries, start=1)
         ]
         title = info.get("title") or ""
+        real_titles = _fetch_pagetitles(bvid, cookie)
+        if real_titles:
+            title_map = {p["page"]: p["title"] for p in real_titles if p.get("title")}
+            for p in pages:
+                if p["page"] in title_map:
+                    p["title"] = title_map[p["page"]]
     else:
         m = re.search(r"[?&]p=(\d+)", url)
         page = int(m.group(1)) if m else 1
