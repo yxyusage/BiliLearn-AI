@@ -153,4 +153,13 @@ html.dark .dc-no { color: #08231f; }
 .dc-answer { margin-top: 6px; color: var(--c-text); }
 .dc-line { margin-top: 4px; color: var(--c-text-2); }
 .dc-retry { margin-top: 4px; text-align: right; }
+
+/* 手机端：输入框加宽、听句按钮更好点 */
+@media (max-width: 768px) {
+  .dict-card { padding: 12px; }
+  .dc-stem { font-size: 16px; line-height: 2.4; }
+  .dc-input { width: 150px; }
+  .dc-head :deep(.el-button) { min-width: 40px; min-height: 40px; }
+  .dc-actions :deep(.el-button) { min-height: 40px; }
+}
 </style>

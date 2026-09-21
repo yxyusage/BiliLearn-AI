@@ -376,4 +376,22 @@ export default {
 .fill-input { width: 124px; margin: 0 5px; vertical-align: middle; }
 .fill-input.slot-right :deep(.el-input__wrapper) { box-shadow: 0 0 0 1px var(--c-success) inset; background: var(--c-success-soft); }
 .fill-input.slot-wrong :deep(.el-input__wrapper) { box-shadow: 0 0 0 1px var(--c-danger) inset; background: var(--c-danger-soft); }
+
+/* 手机端刷题：选项大按钮、点击热区 ≥44px，减少打字 */
+@media (max-width: 768px) {
+  .quiz-card { padding: 12px; margin-bottom: 12px; }
+  .q-stem { font-size: 15px; min-width: 0; }
+  .q-options :deep(.el-radio) {
+    display: flex; align-items: center;
+    padding: 12px 12px; margin: 8px 0; min-height: 48px;
+    border: 1px solid var(--c-border); border-radius: 10px;
+    background: var(--c-bg-elev); width: 100%;
+  }
+  .q-options :deep(.el-radio__label) { flex: 1; font-size: 15px; line-height: 1.5; }
+  .q-options :deep(.el-radio__input) { flex-shrink: 0; }
+  .q-option.opt-right { background: var(--c-success-soft); border-color: var(--c-success); }
+  .q-option.opt-wrong { background: var(--c-danger-soft); border-color: var(--c-danger); }
+  .fill-input { width: 130px; }
+  .q-actions :deep(.el-button) { min-height: 40px; }
+}
 </style>

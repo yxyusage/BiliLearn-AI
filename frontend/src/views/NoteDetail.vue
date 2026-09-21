@@ -51,7 +51,7 @@
         </div>
       </div>
 
-      <div ref="splitLayout" class="layout" :class="[layoutMode, { dragging: dragging }]">
+      <div ref="splitLayout" class="layout" :class="[layoutMode, { dragging: dragging }]" :style="{ '--vw': layoutMode === 'split' ? leftWidth + '%' : '0%' }">
         <div class="video-panel" :style="videoPanelStyle">
           <div class="sticky-video">
             <VideoPlayer ref="player" :bvid="bvid" :page="page" />
@@ -1386,16 +1386,18 @@ html.dark .diag-head { color: var(--c-primary); }
   border: 1px solid var(--c-accent-border); border-radius: 999px; padding: 3px 12px; line-height: 1.6;
 }
 
-/* 笔记双栏：侧边吸顶目录 + 正文 */
-.note-flex { display: flex; gap: 18px; align-items: flex-start; }
-.note-main { flex: 1; min-width: 0; }
+/* 笔记：目录 fixed 固定 + 正文 */
+.note-flex { display: block; }
+.note-main, .diagnosis-card, .intro-collapse, .quiz-entry { margin-left: 236px; }
 .toc-side {
-  position: sticky; top: 4px; flex-shrink: 0;
-  width: 218px; max-height: calc(100vh - 190px); overflow-y: auto;
+  position: fixed; top: 210px; z-index: 40;
+  width: 216px; max-height: calc(100vh - 230px); overflow-y: auto;
   border: 1px solid var(--c-border-light); border-radius: 10px;
   background: var(--c-bg-elev); padding: 10px 8px;
   scrollbar-width: thin;
 }
+.layout.split .toc-side { left: calc(var(--vw, 52%) + 18px); }
+.layout.top .toc-side { left: 16px; }
 .toc-title { font-size: 13px; font-weight: 700; color: var(--c-text); padding: 0 6px 8px; border-bottom: 1px dashed var(--c-border); margin-bottom: 6px; }
 .toc-chapter { margin-bottom: 2px; }
 .toc-chapter-head {
@@ -1642,6 +1644,7 @@ html.dark .b-table tr:nth-child(even) td { background: rgba(255,255,255,.02); }
 /* 窄屏：隐藏侧边目录、自动降级为视频置顶 */
 @media (max-width: 1000px) {
   .toc-side { display: none; }
+  .note-main, .diagnosis-card, .intro-collapse, .quiz-entry { margin-left: 0; }
 }
 @media (max-width: 900px) {
   .layout.split { flex-direction: column; height: auto; overflow: visible; }
