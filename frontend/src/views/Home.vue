@@ -24,8 +24,9 @@
         </el-radio-group>
         <span class="subject-desc">{{ subjectDesc }}</span>
       </div>
-      <div style="margin-top:14px;">
-        <router-link to="/roadmap"><el-button type="warning" plain size="small">🗺️ 不知道从哪集开始？合集线路图：AI 拆模块、标重点、测水平、推荐起点</el-button></router-link>
+      <div style="margin-top:14px; display:flex; gap:8px; flex-wrap:wrap;">
+        <router-link to="/roadmap"><el-button type="warning" plain size="small">🗺️ 合集线路图：AI 拆模块、标重点、测水平、推荐起点</el-button></router-link>
+        <router-link to="/favorites"><el-button type="success" plain size="small">⭐ 收藏夹导入：批量解析收藏夹里的视频，一键生成笔记</el-button></router-link>
       </div>
     </el-card>
 
@@ -65,9 +66,11 @@
 
       <div v-if="videoInfo.pages && videoInfo.pages.length > 1" class="batch-box">
         <span class="subject-label">📚 批量生成（后台异步逐集处理）：</span>
-        <span class="subject-label">前</span>
-        <el-input-number v-model="batchCount" :min="1" :max="videoInfo.pages.length" size="small" style="width: 110px" />
-        <span class="subject-label">集 / 共 {{ videoInfo.pages.length }} 集</span>
+        <span class="subject-label">从第</span>
+        <el-input-number v-model="batchStart" :min="1" :max="videoInfo.pages.length" size="small" style="width: 90px" />
+        <span class="subject-label">集到第</span>
+        <el-input-number v-model="batchEnd" :min="0" :max="videoInfo.pages.length" size="small" style="width: 90px" />
+        <span class="subject-label">集（0=到最后）/ 共 {{ videoInfo.pages.length }} 集</span>
         <el-button size="small" type="warning" :loading="batchStarting" @click="startBatch">开始批量生成</el-button>
         <span class="gen-tip">已生成的集自动复用缓存不重复计费；可关闭页面，在「合集任务」查看进度</span>
       </div>
@@ -149,7 +152,8 @@ export default {
       videoInfo: null,
       selectedPage: 1,
       recentNotes: [],
-      batchCount: 3,
+      batchStart: 1,
+      batchEnd: 0,
       batchStarting: false,
       features: [
         { icon: '⏱️', title: '全链路时间戳', desc: '知识点/公式/题目/错题全部绑定视频时间点，点击直达复习片段' },
@@ -237,7 +241,8 @@ export default {
         var res = await api.post('/collections/start', {
           bvid: this.videoInfo.bvid,
           subject: this.subject,
-          max_pages: this.batchCount,
+          start_page: this.batchStart,
+          end_page: this.batchEnd,
           title: this.videoInfo.title || ''
         })
         ElMessage.success('批量任务已启动，共 ' + res.total + ' 集')
@@ -292,4 +297,20 @@ html.dark .hero-card { background: linear-gradient(135deg, var(--c-primary-soft)
 }
 .feature-title { font-weight: 600; margin: 6px 0; color: var(--c-text); }
 .feature-desc { color: var(--c-text-3); font-size: 12px; line-height: 1.6; }
+
+@media (max-width: 768px) {
+  .hero-title { font-size: 16px; }
+  .hero-sub { font-size: 12px; }
+  .input-row { flex-direction: column; }
+  .input-row .el-button { width: 100%; }
+  .subject-row { gap: 6px; }
+  .subject-label { font-size: 13px; }
+  .video-title { font-size: 14px; }
+  .page-select .el-select { width: 100% !important; }
+  .gen-row .el-button { width: 100%; }
+  .feature-item { padding: 10px 4px; }
+  .feature-icon { width: 44px; height: 44px; font-size: 20px; }
+  .feature-title { font-size: 13px; }
+  .feature-desc { font-size: 11px; }
+}
 </style>

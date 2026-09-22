@@ -10,7 +10,8 @@ const routes = [
   { path: '/config', name: 'config', component: function () { return import('../views/Config.vue') } },
   { path: '/collections', name: 'collections', component: function () { return import('../views/Collections.vue') } },
   { path: '/collections/:id', name: 'collection-detail', component: function () { return import('../views/Collections.vue') } },
-  { path: '/roadmap', name: 'roadmap', component: function () { return import('../views/Roadmap.vue') } }
+  { path: '/roadmap', name: 'roadmap', component: function () { return import('../views/Roadmap.vue') } },
+  { path: '/favorites', name: 'favorites', component: function () { return import('../views/Favorites.vue') } }
 ]
 
 const router = createRouter({

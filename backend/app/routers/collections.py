@@ -133,8 +133,10 @@ def start_job(req: CollectionStartRequest, db: Session = Depends(get_db)):
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail="视频解析失败：" + str(exc)) from exc
     pages = info.get("pages") or [{"page": 1, "title": info.get("title") or ""}]
-    if req.max_pages and req.max_pages > 0:
-        pages = pages[: req.max_pages]
+    if req.start_page > 1 or req.end_page > 0:
+        s = max(1, req.start_page)
+        e = req.end_page if req.end_page > 0 else len(pages)
+        pages = [pg for pg in pages if s <= int(pg.get("page", 0)) <= e]
     try:
         concurrency = max(1, min(4, int(get_setting(db, "collection_concurrency", "2") or "2")))
     except ValueError:

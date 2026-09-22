@@ -24,6 +24,9 @@ class AnalyzeRequest(BaseModel):
     end_page: int = 0  # 0 = 到最后一集
 
 
+class QuizRequest(BaseModel):
+    count: int = 5
+
 class RecommendRequest(BaseModel):
     answers: list  # [{page, correct: bool}]
 
@@ -164,7 +167,7 @@ def get_status(job_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{job_id}/quiz")
-def gen_quiz(job_id: int, db: Session = Depends(get_db)):
+def gen_quiz(job_id: int, req: QuizRequest, db: Session = Depends(get_db)):
     job = db.query(RoadmapJob).filter(RoadmapJob.id == job_id).first()
     if not job or job.status != "done":
         raise HTTPException(status_code=400, detail="线路图未生成完成")
@@ -177,8 +180,9 @@ def gen_quiz(job_id: int, db: Session = Depends(get_db)):
         f"- {m['name']}: " + ", ".join(e.get("title") or ("P" + str(e.get("page"))) for e in m["episodes"])
         for m in modules
     )
+    count = max(3, min(20, int(req.count or 5)))
     sys = (
-        "你是学习水平诊断出题人。根据教程合集的模块划分，出 5 道诊断题，"
+        "你是学习水平诊断出题人。根据教程合集的模块划分，出 " + str(count) + " 道诊断题，"
         "用来判断用户是零基础/有基础/想深入。题型为单选，4 个选项，包含正确答案和解析。\n"
         '严格输出 JSON 数组：[{"question":"题干","options":["A","B","C","D"],'
         '"answer":"A","explanation":"解析","tests":"考察的模块"}]'

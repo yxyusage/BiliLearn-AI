@@ -137,3 +137,18 @@ class RoadmapJob(Base):
     quiz_json = Column(Text, default="")     # 自测题 JSON
     recommend_json = Column(Text, default="")  # 推荐起点 JSON
     created_at = Column(DateTime, default=_now)
+
+
+class ReviewMaterial(Base):
+    """合集复习资料：把多集笔记蒸馏重排成一份可打印的复习资料。"""
+    __tablename__ = "review_materials"
+
+    id = Column(Integer, primary_key=True, index=True)
+    collection_job_id = Column(Integer, index=True)
+    title = Column(String(512), default="")
+    subject = Column(String(32), default="general")
+    status = Column(String(32), default="running")  # running/done/failed
+    progress = Column(String(128), default="")       # 当前进度描述
+    error = Column(Text, default="")
+    result_json = Column(Text, default="")           # 复习资料 JSON
+    created_at = Column(DateTime, default=_now)

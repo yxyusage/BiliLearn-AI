@@ -46,7 +46,6 @@ export default {
   methods: {
     jumpTo(seconds) {
       var target = Math.floor(Number(seconds) || 0)
-      if (Math.abs(target - this.lastJump) < 1) return
       if (this.timer) clearTimeout(this.timer)
       this.timer = setTimeout(() => {
         this.currentTime = target

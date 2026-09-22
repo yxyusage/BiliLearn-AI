@@ -8,8 +8,8 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from .database import Base, SessionLocal, engine, run_migrations
-from .models import CollectionJob, Note
-from .routers import collections, config, export, notes, quiz, review, roadmap, stats, video
+from .models import CollectionJob, Note, ReviewMaterial
+from .routers import collections, config, export, favorites, notes, quiz, review, review_material, roadmap, stats, video
 
 Base.metadata.create_all(bind=engine)
 run_migrations()
@@ -34,6 +34,8 @@ app.include_router(config.router, prefix="/api/config", tags=["配置"])
 app.include_router(export.router, prefix="/api/export", tags=["导出"])
 app.include_router(stats.router, prefix="/api/stats", tags=["统计"])
 app.include_router(roadmap.router, prefix="/api/roadmap", tags=["合集线路图"])
+app.include_router(favorites.router, prefix="/api/favorites", tags=["收藏夹导入"])
+app.include_router(review_material.router, prefix="/api/review-material", tags=["复习资料"])
 
 
 @app.on_event("startup")
@@ -50,6 +52,10 @@ def _startup_recovery():
         ).all()
         for j in stuck_jobs:
             j.status = "cancelled" if j.status == "cancelling" else ("partial" if j.done_count else "failed")
+        stuck_mats = db.query(ReviewMaterial).filter(ReviewMaterial.status == "running").all()
+        for m in stuck_mats:
+            m.status = "failed"
+            m.error = "服务重启导致生成中断，请重新生成"
         db.commit()
         # 回收 WAL，避免 -wal 文件无限增长
         db.execute(text("PRAGMA wal_checkpoint(PASSIVE)"))

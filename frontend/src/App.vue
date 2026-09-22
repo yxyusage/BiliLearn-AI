@@ -13,6 +13,7 @@
           <el-menu-item index="/review">复习中心</el-menu-item>
           <el-menu-item index="/stats">学习数据</el-menu-item>
           <el-menu-item index="/collections">合集任务</el-menu-item>
+          <el-menu-item index="/favorites">收藏夹</el-menu-item>
           <el-menu-item index="/config">设置</el-menu-item>
         </el-menu>
         <el-tooltip :content="isDark ? '切换到浅色模式' : '切换到深色模式'" placement="bottom">
@@ -78,4 +79,15 @@ export default {
 .header-right { display: flex; align-items: center; gap: 8px; }
 .theme-btn { font-size: 16px; }
 .app-main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 16px; }
+
+@media (max-width: 768px) {
+  .app-header { padding: 0 12px; height: 52px; }
+  .logo-sub { display: none; }
+  .logo-text { font-size: 15px; }
+  .header-right { gap: 4px; }
+  .nav-menu { max-width: calc(100vw - 140px); overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .nav-menu::-webkit-scrollbar { display: none; }
+  .nav-menu .el-menu-item { padding: 0 10px; font-size: 13px; height: 52px; line-height: 52px; }
+  .app-main { padding: 12px 10px; }
+}
 </style>

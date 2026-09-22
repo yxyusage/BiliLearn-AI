@@ -84,7 +84,18 @@
           <el-button type="primary" size="small" :loading="mapLoading" @click="generateMap">
             {{ job.mindmap ? '重新生成全课程知识图谱' : '生成全课程知识图谱与考点地图' }}
           </el-button>
+          <el-button type="success" size="small" :loading="reviewLoading" @click="startReviewMaterial">
+            {{ reviewMat && reviewMat.status === 'done' ? '重新生成复习资料 PDF' : '生成合集复习资料（可打印 PDF）' }}
+          </el-button>
+          <el-button v-if="reviewMat && reviewMat.status === 'done'" type="success" size="small" plain @click="downloadReviewPdf">
+            下载复习资料 PDF
+          </el-button>
         </div>
+        <div v-if="reviewMat && reviewMat.status === 'running'" class="review-progress">
+          <el-progress :percentage="0" :status="'warning'" :show-text="false" :stroke-width="6" />
+          <span class="review-progress-text">{{ reviewMat.progress || '生成中…' }}</span>
+        </div>
+        <el-alert v-if="reviewMat && reviewMat.status === 'failed'" :title="reviewMat.error || '生成失败'" type="error" :closable="false" show-icon style="margin-top:8px" />
       </el-card>
 
       <el-row :gutter="16" v-if="job">
@@ -156,7 +167,10 @@ export default {
       job: null,
       mapTab: 'kg',
       mapLoading: false,
-      timer: null
+      timer: null,
+      reviewMat: null,
+      reviewLoading: false,
+      reviewTimer: null
     }
   },
   computed: {
@@ -166,11 +180,15 @@ export default {
     }
   },
   created() {
-    if (this.jobId) this.loadJob()
-    else this.loadJobs()
+    if (this.jobId) {
+      this.loadJob()
+      var saved = localStorage.getItem('review_mat_' + this.jobId)
+      if (saved) this.loadReviewMaterial(Number(saved))
+    } else this.loadJobs()
   },
   beforeUnmount() {
     if (this.timer) clearInterval(this.timer)
+    if (this.reviewTimer) clearInterval(this.reviewTimer)
   },
   watch: {
     jobId() {
@@ -266,6 +284,44 @@ export default {
       } catch (e) {
         ElMessage.error(e.message)
       }
+    },
+    async startReviewMaterial() {
+      this.reviewLoading = true
+      try {
+        var res = await api.post('/review-material/start', { collection_job_id: this.jobId })
+        if (res.id) {
+          localStorage.setItem('review_mat_' + this.jobId, String(res.id))
+          this.loadReviewMaterial(res.id)
+          ElMessage.success('复习资料生成已启动，预计需要 1-3 分钟')
+        }
+      } catch (e) {
+        ElMessage.error(e.response?.data?.detail || e.message)
+      } finally {
+        this.reviewLoading = false
+      }
+    },
+    async loadReviewMaterial(matId) {
+      try {
+        var m = await api.get('/review-material/' + matId)
+        this.reviewMat = m
+        if (m.status === 'running') {
+          if (!this.reviewTimer) this.reviewTimer = setInterval(function () { this.loadReviewMaterial(matId) }.bind(this), 4000)
+        } else {
+          if (this.reviewTimer) { clearInterval(this.reviewTimer); this.reviewTimer = null }
+          if (m.status === 'done') {
+            localStorage.removeItem('review_mat_' + this.jobId)
+            ElMessage.success('复习资料生成完成，可下载 PDF')
+          } else if (m.status === 'failed') {
+            localStorage.removeItem('review_mat_' + this.jobId)
+          }
+        }
+      } catch (e) {
+        if (this.reviewTimer) { clearInterval(this.reviewTimer); this.reviewTimer = null }
+      }
+    },
+    downloadReviewPdf() {
+      if (!this.reviewMat) return
+      window.open('/api/review-material/' + this.reviewMat.id + '/pdf', '_blank')
     }
   }
 }
@@ -278,7 +334,10 @@ export default {
 .detail-head { margin-bottom: 16px; }
 .detail-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .detail-title { margin: 0; font-size: 17px; }
-.map-actions { margin-top: 12px; }
+.map-actions { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.review-progress { margin-top: 10px; display: flex; align-items: center; gap: 10px; }
+.review-progress .el-progress { flex: 0 0 120px; }
+.review-progress-text { font-size: 12px; color: var(--c-text-2); }
 .result-list { max-height: 420px; overflow-y: auto; }
 .result-item { display: flex; align-items: center; gap: 8px; padding: 6px 2px; border-bottom: 1px dashed var(--c-border); font-size: 13px; }
 .result-page { color: var(--c-primary); font-weight: 600; flex-shrink: 0; }

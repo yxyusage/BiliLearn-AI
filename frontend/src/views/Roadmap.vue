@@ -173,6 +173,21 @@ export default {
       } catch (e) { ElMessage.error(e.message) }
       finally { this.recLoading = false }
     },
+    async generateNotes() {
+      try {
+        const bvid = this.preview ? this.preview.bvid : ''
+        if (!bvid) { ElMessage.warning('缺少视频信息'); return }
+        const res = await api.post('/collections/start', {
+          bvid: bvid,
+          subject: 'general',
+          start_page: this.startPage,
+          end_page: this.endPage,
+          title: this.title || ''
+        })
+        ElMessage.success('批量笔记任务已启动，共 ' + res.total + ' 集')
+        this.$router.push('/collections/' + res.id)
+      } catch (e) { ElMessage.error(e.message) }
+    },
     reset() {
       if (this.timer) clearInterval(this.timer)
       this.jobId = null; this.url = ''; this.preview = null; this.result = {}; this.quiz = []; this.answers = {}; this.recommend = {}; localStorage.removeItem('roadmap_job')
@@ -210,4 +225,23 @@ export default {
 .rp-q-stem { font-weight: 600; margin-bottom: 8px; line-height: 1.6; }
 .rp-rec { margin-top: 16px; }
 .rp-actions { margin-top: 20px; text-align: center; }
+
+@media (max-width: 768px) {
+  .roadmap-page { padding: 12px 10px; }
+  .rp-header h2 { font-size: 18px; }
+  .rp-sub { font-size: 12px; }
+  .rp-pick-row { gap: 6px; font-size: 13px; }
+  .rp-pick-row .el-button { width: 100%; margin-top: 4px; }
+  .rp-eps-preview { max-height: 200px; }
+  .rp-ep-item { font-size: 12px; padding: 3px 6px; }
+  .rp-ep { flex-wrap: wrap; padding: 8px 10px; }
+  .rp-ep-no { min-width: 32px; font-size: 12px; }
+  .rp-ep-title { font-size: 13px; flex-basis: 100%; order: 3; padding-left: 32px; }
+  .rp-ep-tag { font-size: 10px; padding: 1px 6px; }
+  .rp-ep-reason { padding-left: 0; font-size: 11px; }
+  .rp-module-head { font-size: 14px; }
+  .rp-q-stem { font-size: 14px; }
+  .rp-quiz .el-radio { display: block; margin: 6px 0; padding: 8px; border: 1px solid var(--c-border); border-radius: 8px; }
+  .rp-quiz .el-button { width: 100%; }
+}
 </style>

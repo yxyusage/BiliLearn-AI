@@ -90,7 +90,8 @@ class FormulaRequest(BaseModel):
 class CollectionStartRequest(BaseModel):
     bvid: str
     subject: str = "general"
-    max_pages: int = 0  # 0 = 全部
+    start_page: int = 1
+    end_page: int = 0  # 0 = 到最后一集
     title: str = ""
 
 

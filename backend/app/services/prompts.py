@@ -290,3 +290,116 @@ def re_explain_prompt(section_text: str, note_json: str):
         "所在笔记全文（供参考上下文）：\n" + note_json[:6000]
     )
     return [{"role": "system", "content": CHAT_SYSTEM.replace("{note}", note_json[:3000])}, {"role": "user", "content": user}]
+
+
+REVIEW_MATERIAL_SYSTEM = (
+    "你是「BiliLearn-AI」的资深教材编审，擅长把多集课程笔记蒸馏、重排成一份自成体系、可直接打印的复习资料。\n"
+    "核心原则：\n"
+    "1. 知识蒸馏：合并同类项、删掉口语化、保留硬核知识，知识点一个都不能少。\n"
+    "2. 按知识逻辑重排：绝对不按视频顺序排列，按学科知识体系重新组织章节。\n"
+    "3. 严格基于输入：所有定义、公式、代码、结论必须来自输入笔记，禁止编造。\n"
+    "4. 准确零错误：公式上下标、变量符号、专业术语必须准确，禁止出现错别字或讹误（如把'传播时延'写成'传摇时延'）。\n"
+    "5. 可打印：结构适合纸质打印，章节层级清晰、公式独立成行、代码有边框、对比用表格。\n"
+    "输出格式：只输出严格合法的 JSON，禁止任何多余文字、解释或 Markdown 代码块。\n"
+    "数学公式用 LaTeX：行内 $...$，独立公式用 $$...$$。上下标必须用 ^{} 和 _{} 正确标注（如 2^{10}、10^3），禁止写成普通数字。\n"
+    "代码保留完整缩进。"
+)
+
+
+def review_material_prompt(course_title: str, subject: str, distilled_notes: str):
+    user = (
+        "以下是合集《" + str(course_title or "未命名课程") + "》（学科：" + _subject(subject)
+        + "）各集笔记的蒸馏版 JSON：\n" + distilled_notes + "\n\n"
+        "请把这些笔记蒸馏、重排成一份自成体系的复习资料，只输出 JSON：\n"
+        '{"title":"资料标题","subject":"学科","overview":"全资料3-5句概述",'
+        '"usage_guide":"复习使用指南：基础一轮/强化二轮/冲刺三轮的学习目标与建议时长",'
+        '"chapters":[{"title":"第一章 章节名","intro":"本章一句话导读",'
+        '"learning_objectives":{"master":["必须掌握的知识点"],"understand":["需要理解的"],"know":["只需了解的"]},'
+        '"sections":[{"heading":"1.1 小节名","type":"definition|concept|derivation|example|code|comparison|conclusion",'
+        '"importance":"必考|掌握|了解","quick_memo":"一句话速记（可选）","scenario":"生活场景案例（可选，不必每个小节都有）",'
+        '"blocks":[{"type":"text","content":"成段讲解"},{"type":"formula","content":"LaTeX源码，上下标用^{}_{}"},'
+        '{"type":"steps","items":["第一步"]},{"type":"list","ordered":false,"items":["要点"]},'
+        '{"type":"code","language":"python","content":"完整代码"},{"type":"table","headers":["列1"],"rows":[["a"]]},'
+        '{"type":"quote","content":"一句话结论"}],"source_pages":[1,3]}],'
+        '"confusion_points":[{"point":"易混点名称","a":"概念A","b":"概念B","difference":"核心区别"}],'
+        '"summary":"本章小结2-4句","key_points":["核心结论"],'
+        '"quiz":[{"no":1,"type":"single|fill|calc|judge|short","stem":"题干填空用____","options":["选项1","选项2","选项3","选项4"]}]}],'
+        '"answers":[{"chapter":"第一章","no":1,"answer":"答案","explanation":"精简解析1-2句"}],'
+        '"appendix":{"formula_sheet":[{"name":"公式名","latex":"LaTeX","scene":"适用场景"}],'
+        '"glossary":[{"term":"术语","definition":"定义","chapter":"第一章"}],'
+        '"flash_cards":[{"front":"问题","back":"答案"}],'
+        '"source_map":[{"page":1,"title":"第1集标题","covered_in":["第一章"]}]}}\n'
+        "==== 详细规则 ====\n"
+        "【整体结构】\n"
+        "1. usage_guide：给出三轮复习建议（基础一轮打基础、强化二轮抓重点、冲刺三轮背考点），每轮说明学习目标和建议时长。\n"
+        "2. chapters：3-8章，按知识逻辑排列，绝不按视频页码排序。\n"
+        "3. answers：所有章节的答案集中放在这里（全局答案篇），不要在每章里放answers。\n"
+        "4. appendix：公式表（带名称和适用场景）、术语索引、速记卡、视频来源映射。\n"
+        "【章节组织】\n"
+        "1. 每章2-6个小节，每个小节聚焦一个完整知识点。\n"
+        "2. learning_objectives：按master（必须掌握，能默写能推导）、understand（理解原理，能解释）、know（了解概念，能识别）三级分类。\n"
+        "3. 同一个知识点多个视频都讲了，必须合并成一个小节，取最完整的讲解。\n"
+        "4. source_pages标注内容来自哪几集。\n"
+        "【小节字段】\n"
+        "1. importance：必考（★★★，考试高频出现）/掌握（★★，重要知识点）/了解（★，背景知识）。\n"
+        "2. quick_memo：一句话速记，用最简短的话概括这个知识点的核心（如'协议三要素：语法定格式、语义定动作、同步定时序'）。可选，不是每个小节都要有。\n"
+        "3. scenario：生活场景案例，用生活化的例子帮助理解（如'打电话对应电路交换、发微信对应分组交换'）。可选，不必每个小节都有，全资料有5-10个即可。\n"
+        "4. blocks：内容块，公式必须用formula块且上下标正确，代码用code块，对比用table块，推导用steps块。\n"
+        "【易混点 confusion_points】\n"
+        "1. 每章1-3个易混点辨析，找出本章最容易混淆的两个概念。\n"
+        "2. 格式：point（易混点名称）、a（概念A的说法）、b（概念B的说法）、difference（核心区别，一句话说清）。\n"
+        "3. 例如：吞吐量vs带宽、处理时延vs排队时延、虚电路vs电路交换。\n"
+        "【题目与答案分离】\n"
+        "1. quiz只放题目：no（章内题号，从1开始）、type、stem、options（单选才有）。题目里不要出现答案。\n"
+        "2. answers集中放在全局：chapter（所属章标题）、no（对应章内题号）、answer、explanation（精简1-2句，只说关键思路和易错点）。\n"
+        "3. 每章6-9题，题型：single（单选4选项）、fill（填空____标记）、calc（计算）、judge（判断）、short（简答题）。\n"
+        "4. 每章必须含1-2道short简答题（考察概念理解、原理阐述、对比分析，贴合高校期末和考研题型），其余为选择/填空/判断/计算。\n"
+        "5. 数理类多出calc和fill，计算机类多出single和fill，文科类多出short。不出证明题。\n"
+        
+        "6. 单选options不带A./B.前缀，answer只给字母（A/B/C/D）。\n"
+        "7. 填空answer按空位顺序，同空等价用/分隔，不同空用|分隔。\n"
+        "8. 简答题answer给出完整参考答案要点（分点），explanation说明答题思路。\n"
+        "【学科模板】\n"
+        "▼ 数理类math（高数/线代/概率论/物理）\n"
+        "通用结构：定义→定理/公式→推导证明→经典例题→适用条件→易错易混对比\n"
+        "- 高数：极限/导数/积分的定义与计算，公式必须独立成行且上下标正确，推导用steps分步，例题给完整计算过程，收敛/发散条件用table对比。易混点：收敛vs一致收敛、可导vs可微。\n"
+        "- 线性代数：矩阵运算/行列式/向量空间/特征值，矩阵用formula块（LaTeX矩阵语法\\begin{pmatrix}），变换流程用steps，相似/合同/等价用table对比。易混点：行列式vs矩阵、秩vs维数。\n"
+        "- 概率论：分布/期望/方差/大数定律，分布函数和密度函数用formula，计算用steps，各分布参数/期望/方差用table汇总。易混点：分布函数vs密度函数、独立vs不相关。\n"
+        "- 物理：定律/公式/适用条件/典型模型，公式用formula，推导用steps，模型假设用quote标注。易混点：动量vs动能、电势vs电场强度。\n"
+        "▼ 计算机类cs（组成原理/数据结构/算法/操作系统/网络/编程）\n"
+        "通用结构：概念→原理/数据结构→算法流程→代码实现→复杂度分析→易错坑点→对比\n"
+        "- 组成原理：部件结构/工作流程/性能指标，数据通路和流水线用steps，各部件功能用table对比，性能公式（CPI/加速比/Amdahl定律）用formula。易混点：CPIvs时钟周期、吞吐量vs带宽。\n"
+        "- 数据结构：逻辑结构/存储结构/操作/复杂度，每种结构给定义+操作流程（steps）+复杂度（formula），顺序表/链表/栈/队列/树/图对比用table，遍历用steps。易混点：栈vs队列、深度优先vs广度优先。\n"
+        "- 算法：思想/伪代码/复杂度/适用场景，思想用text，代码用code块，时间/空间复杂度用formula，分治/贪心/DP/回溯对比用table，经典例题给题干+完整代码+复杂度。易混点：贪心vs动态规划、回溯vs分支限界。\n"
+        "- 操作系统：机制/算法/数据结构/状态转换，进程状态转换用steps或table，调度算法用table对比（算法/思想/优缺点/适用），死锁条件和银行家用steps，页面置换算法用table+例题。易混点：进程vs线程、死锁vs饥饿。\n"
+        "- 计算机网络：协议/报文格式/工作流程/对比，协议工作流程用steps，报文格式用table（字段/长度/含义），TCP/UDP、各层设备、路由算法用table对比，三次握手/四次挥手用steps。易混点：TCPvsUDP、电路交换vs分组交换、吞吐量vs带宽。\n"
+        "- 编程（Python/Java/C等）：语法/用法/最佳实践/坑点，代码完整可运行用code块，语法规则用text，易错点用quote，不同写法对比用table。易混点：值传递vs引用传递、深拷贝vs浅拷贝。\n"
+        "▼ 通用类general：按「定义→原理→示例→结论→对比」组织，易混点用table或confusion_points。\n"
+        "▼ 英语english：按「核心词汇→语法点→例句→用法归纳→易错提醒」组织，词汇用table（单词/音标/释义/例句），语法点用text+例句，易混点（如时态辨析、近义词辨析）用confusion_points。\n"
+        "▼ 文科liberal：按「核心概念→理论框架→对比辨析→案例分析→考点结论」组织，理论框架用steps或list，不同学派/理论用table对比，易混点用confusion_points。\n"
+        "【blocks规范】\n"
+        "- heading：节内子标题（三级标题），content为标题文字，用于小节内进一步分层。\n"
+        "- text：成段讲解，至少2句，可含行内公式$...$与**加粗**。\n"
+        "- formula：独立成行公式，content纯LaTeX源码，不包$，上下标必须用^{}和_{}。简单的数量级递进（如2的10次方、10的3次方）不要用formula块，直接用文字描述（如'1024倍'、'千倍'或'1024（2的10次方）'）。\n"
+        "- steps：有序步骤数组，推导/解题/算法流程必须用它。\n"
+        "- list：并列要点，ordered=false无序/true有序。\n"
+        "- code：代码，language给语言名，content完整代码保留缩进。\n"
+        "- table：对比或结构化信息，headers表头数组，rows二维数组。\n"
+        "- quote：一句话结论或易错提醒。\n"
+        "【附录appendix】\n"
+        "1. formula_sheet：汇总全资料核心公式（数理/计算机类必填），每个公式带name（公式名）、latex（LaTeX源码）、scene（适用场景一句话）。按章节顺序排列。\n"
+        "2. glossary：术语索引，全资料10-20个核心术语，每个带term（术语）、definition（简短定义）、chapter（所在章节标题）。\n"
+        "3. flash_cards：速记卡，10-15张，front是问题（如'协议三要素是什么？'），back是答案（如'语法、语义、同步'）。适合考前突击。\n"
+        "4. source_map：标注每集视频内容被覆盖到了哪些章节。\n"
+        "【质量红线】\n"
+        "1. 宁可少而精，不要灌水：每个小节必须有实质内容。\n"
+        "2. 严格基于输入：输入里没有的知识点、公式、代码，一律不写。\n"
+        "3. 不按视频顺序：章节和小节按知识逻辑排列。\n"
+        "4. 合并重复：同一个知识点只出现一次，取最完整版本。\n"
+        "5. 公式代码零错误：LaTeX语法正确，上下标用^{}_{}，代码保留完整缩进，专业术语无错别字。\n"
+        "6. 题目答案分离：quiz只有题目，answers全局集中放答案，不要在每章里放answers。\n"
+        "7. quick_memo和scenario是可选字段，没有就不写，不要硬凑。\n"
+        "8. 绝对禁止在正文内容中出现页码数字（如第5页、P10），页码由排版系统自动生成。\n"
+        "9. 常识性的数量级、单位换算不要用行内公式$...$或上标，直接用文字+数字（如写'1024倍'而不是'$2^{10}$'，写'千倍'而不是'$10^3$'）。只有真正的数学公式才用formula块或行内公式。"
+    )
+    return [{"role": "system", "content": REVIEW_MATERIAL_SYSTEM}, {"role": "user", "content": user}]
