@@ -24,8 +24,29 @@
       </div>
     </el-header>
     <el-main class="app-main">
-      <router-view />
+      <router-view v-slot="{ Component }">
+        <transition name="page" mode="out-in">
+          <component :is="Component" />
+        </transition>
+      </router-view>
     </el-main>
+    <nav class="mobile-nav" v-if="isMobile">
+      <router-link to="/" class="mnav-item" :class="{active: activeMenu === '/'}">
+        <span class="mnav-icon">🏠</span><span class="mnav-label">首页</span>
+      </router-link>
+      <router-link to="/history" class="mnav-item" :class="{active: activeMenu === '/history'}">
+        <span class="mnav-icon">📋</span><span class="mnav-label">笔记</span>
+      </router-link>
+      <router-link to="/review" class="mnav-item" :class="{active: activeMenu === '/review'}">
+        <span class="mnav-icon">🔄</span><span class="mnav-label">复习</span>
+      </router-link>
+      <router-link to="/stats" class="mnav-item" :class="{active: activeMenu === '/stats'}">
+        <span class="mnav-icon">📊</span><span class="mnav-label">数据</span>
+      </router-link>
+      <router-link to="/config" class="mnav-item" :class="{active: activeMenu === '/config'}">
+        <span class="mnav-icon">⚙️</span><span class="mnav-label">设置</span>
+      </router-link>
+    </nav>
   </el-container>
 </template>
 
@@ -34,6 +55,15 @@ import { theme, toggleTheme as doToggleTheme } from './utils/theme'
 
 export default {
   name: 'App',
+  data() {
+    return { isMobile: window.innerWidth <= 768 }
+  },
+  mounted() {
+    window.addEventListener('resize', this.checkMobile)
+  },
+  beforeUnmount() {
+    window.removeEventListener('resize', this.checkMobile)
+  },
   computed: {
     activeMenu() {
       var path = this.$route.path
@@ -49,6 +79,9 @@ export default {
     }
   },
   methods: {
+    checkMobile() {
+      this.isMobile = window.innerWidth <= 768
+    },
     toggleTheme(e) {
       doToggleTheme(e)
     }
@@ -85,9 +118,55 @@ export default {
   .logo-sub { display: none; }
   .logo-text { font-size: 15px; }
   .header-right { gap: 4px; }
-  .nav-menu { max-width: calc(100vw - 140px); overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
-  .nav-menu::-webkit-scrollbar { display: none; }
-  .nav-menu .el-menu-item { padding: 0 10px; font-size: 13px; height: 52px; line-height: 52px; }
-  .app-main { padding: 12px 10px; }
+  .nav-menu { display: none; }
+  .app-main { padding: 12px 10px 72px; }
+}
+.mobile-nav {
+  display: none;
+}
+@media (max-width: 768px) {
+  .mobile-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    height: 58px;
+    background: color-mix(in srgb, var(--c-bg-elev) 92%, transparent);
+    backdrop-filter: blur(14px) saturate(1.5);
+    -webkit-backdrop-filter: blur(14px) saturate(1.5);
+    border-top: 1px solid var(--c-border);
+    z-index: 100;
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  .mnav-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    text-decoration: none;
+    color: var(--c-text-3);
+    font-size: 11px;
+    transition: color .2s, transform .15s;
+  }
+  .mnav-item:active { transform: scale(.92); }
+  .mnav-item.active { color: var(--c-primary); }
+  .mnav-icon { font-size: 20px; line-height: 1; }
+  .mnav-label { font-size: 11px; }
+}
+</style>
+
+<style>
+.page-enter-active,
+.page-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 </style>

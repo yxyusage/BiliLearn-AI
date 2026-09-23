@@ -186,12 +186,12 @@
                         :key="si"
                         :id="'sec-' + ci + '-' + si"
                         class="note-section"
-                        :class="['sec-' + sec.type, { important: sec.important }]"
+                        :class="['sec-' + sec.type, { important: sec.important, 'sec-highlight': highlightKey === ci + '-' + si }]"
                       >
                         <div class="sec-head">
                           <span class="sec-badge">{{ sectionTypeLabel(sec.type) }}</span>
                           <span class="sec-heading"><LatexText :text="sec.heading" /></span>
-                          <TimeLink v-if="sec.time_stamp" :time="sec.time_stamp" @jump="jump" />
+                          <TimeLink v-if="sec.time_stamp" :time="sec.time_stamp" @jump="(t) => jump(t, ci, si)" />
                           <el-tag v-if="sec.important" size="small" type="danger" effect="dark">重点</el-tag>
                           <el-button size="small" text type="warning" @click="openConfusion(ci, si)">
                             🙋 没懂
@@ -630,6 +630,7 @@ export default {
       confusionLoading: false,
       confusionPointId: 0,
       lastJumpSec: 0,
+      highlightKey: "",
       // 学前诊断
       diagnosis: { has_prior: false, prior_notes: [], questions: [] },
       diagQuestions: [],
@@ -908,14 +909,27 @@ export default {
       var names = { single: '单选题', judge: '判断题', fill: '填空题', calc: '计算题', proof: '思考卡' }
       return names[t] || '题目'
     },
-    jump(hms) {
+    jump(hms, ci, si) {
       var sec = hmsToSeconds(hms)
       this.lastJumpSec = sec
       if (this.$refs.player) this.$refs.player.jumpTo(sec)
+      if (ci !== undefined && si !== undefined) this._highlightSec(ci, si)
     },
     jumpBySeconds(sec) {
       this.lastJumpSec = sec
       if (this.$refs.player) this.$refs.player.jumpTo(sec)
+    },
+    _highlightSec(ci, si) {
+      var key = ci + "-" + si
+      this.highlightKey = key
+      var self = this
+      var el = document.getElementById("sec-" + key)
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" })
+      }
+      setTimeout(function () {
+        if (self.highlightKey === key) self.highlightKey = ""
+      }, 2200)
     },
     async download(type) {
       var url = '/api/export/' + this.noteId + '/' + type
@@ -1699,5 +1713,16 @@ html.dark .b-table tr:nth-child(even) td { background: rgba(255,255,255,.02); }
   .layout.split .video-panel { width: 100% !important; position: static; padding-right: 0; height: auto; overflow: visible; }
   .layout.split .content-panel { height: auto; overflow: visible; }
   .split-divider { display: none; }
+}
+
+/* 时间戳跳转高亮闪烁 */
+.note-section.sec-highlight {
+  animation: sec-flash 2.2s ease-out;
+  border-radius: 10px;
+}
+@keyframes sec-flash {
+  0% { background: color-mix(in srgb, var(--c-primary) 22%, transparent); box-shadow: 0 0 0 2px var(--c-primary); }
+  40% { background: color-mix(in srgb, var(--c-primary) 14%, transparent); box-shadow: 0 0 0 2px var(--c-primary-border); }
+  100% { background: transparent; box-shadow: 0 0 0 0 transparent; }
 }
 </style>

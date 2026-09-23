@@ -6,7 +6,18 @@
         <h2>合集批量任务</h2>
         <el-button size="small" @click="loadJobs">刷新</el-button>
       </div>
-      <el-table :data="jobs" v-loading="loading" empty-text="还没有批量任务，去首页解析合集后点击「开始批量生成」">
+      <div v-if="loading" class="skeleton-wrap">
+        <div v-for="i in 4" :key="i" class="skeleton skeleton-card"></div>
+      </div>
+      <el-table v-else :data="jobs">
+        <template #empty>
+          <div class="empty-state">
+            <div class="empty-icon">📦</div>
+            <p class="empty-title">还没有合集任务</p>
+            <p class="empty-desc">在首页粘贴合集链接，选择集数范围后批量生成笔记</p>
+            <el-button type="primary" @click="$router.push('/')">去首页解析合集</el-button>
+          </div>
+        </template>
         <el-table-column label="课程" min-width="220">
           <template #default="scope">
             <el-link type="primary" @click="$router.push('/collections/' + scope.row.id)">{{ scope.row.title }}</el-link>
@@ -344,4 +355,10 @@ export default {
 .result-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-text-2); }
 .result-failed { color: var(--c-danger); cursor: help; }
 h4 { margin: 0 0 10px; }
+
+.empty-state { padding: 40px 20px; text-align: center; }
+.empty-icon { font-size: 48px; margin-bottom: 12px; opacity: .6; }
+.empty-title { font-size: 16px; font-weight: 600; color: var(--c-text); margin: 0 0 6px; }
+.empty-desc { font-size: 13px; color: var(--c-text-3); margin: 0 0 16px; }
+.skeleton-wrap { padding: 8px 0; }
 </style>

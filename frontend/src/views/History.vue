@@ -21,7 +21,18 @@
         <el-button size="small" @click="load">刷新</el-button>
       </div>
 
-      <el-table :data="filtered" v-loading="loading" empty-text="还没有笔记，去首页生成第一份吧">
+      <div v-if="loading" class="skeleton-wrap">
+        <div v-for="i in 5" :key="i" class="skeleton skeleton-card"></div>
+      </div>
+      <el-table v-else :data="filtered">
+        <template #empty>
+          <div class="empty-state">
+            <div class="empty-icon">📚</div>
+            <p class="empty-title">还没有笔记</p>
+            <p class="empty-desc">粘贴 B 站视频链接，AI 自动生成带时间戳的结构化笔记</p>
+            <el-button type="primary" @click="$router.push('/')">去生成第一份笔记</el-button>
+          </div>
+        </template>
         <el-table-column label="标题" min-width="240">
           <template #default="scope">
             <el-link type="primary" @click="open(scope.row)">{{ scope.row.title }}</el-link>
@@ -160,4 +171,9 @@ export default {
 <style scoped>
 .history-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 10px; }
 .history-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.empty-state { padding: 40px 20px; text-align: center; }
+.empty-icon { font-size: 48px; margin-bottom: 12px; opacity: .6; }
+.empty-title { font-size: 16px; font-weight: 600; color: var(--c-text); margin: 0 0 6px; }
+.empty-desc { font-size: 13px; color: var(--c-text-3); margin: 0 0 16px; }
+.skeleton-wrap { padding: 8px 0; }
 </style>

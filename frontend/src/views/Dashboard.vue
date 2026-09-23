@@ -7,19 +7,19 @@
 
     <div class="stat-row">
       <el-card shadow="never" class="stat-card">
-        <div class="stat-num">{{ stats.notes.done }}<span class="stat-sub">/{{ stats.notes.total }}</span></div>
+        <div class="stat-num">{{ display.notesDone }}<span class="stat-sub">/{{ display.notesTotal }}</span></div>
         <div class="stat-label">已生成笔记</div>
       </el-card>
       <el-card shadow="never" class="stat-card">
-        <div class="stat-num">{{ stats.wrong_answers.active }}</div>
+        <div class="stat-num">{{ display.wrongActive }}</div>
         <div class="stat-label">未掌握错题</div>
       </el-card>
       <el-card shadow="never" class="stat-card">
-        <div class="stat-num">{{ stats.review.due_today }}</div>
+        <div class="stat-num">{{ display.reviewDue }}</div>
         <div class="stat-label">今日待复习（含逾期）</div>
       </el-card>
       <el-card shadow="never" class="stat-card">
-        <div class="stat-num">{{ stats.collections.total }}</div>
+        <div class="stat-num">{{ display.collectionsTotal }}</div>
         <div class="stat-label">合集任务</div>
       </el-card>
     </div>
@@ -45,11 +45,11 @@
 
     <el-card shadow="never" class="detail-card">
       <div class="detail-row">
-        <div class="detail-item"><b>{{ stats.review.total_plan }}</b><span>复习计划总数</span></div>
-        <div class="detail-item"><b>{{ stats.review.overdue }}</b><span>已逾期</span></div>
-        <div class="detail-item"><b>{{ stats.review.done_today }}</b><span>今日已完成复习</span></div>
-        <div class="detail-item"><b>{{ stats.wrong_answers.mastered }}</b><span>已掌握错题</span></div>
-        <div class="detail-item"><b>{{ stats.confusions.open }}</b><span>待解决的「没懂」</span></div>
+        <div class="detail-item"><b>{{ display.reviewPlan }}</b><span>复习计划总数</span></div>
+        <div class="detail-item"><b>{{ display.reviewOverdue }}</b><span>已逾期</span></div>
+        <div class="detail-item"><b>{{ display.reviewDone }}</b><span>今日已完成复习</span></div>
+        <div class="detail-item"><b>{{ display.wrongMastered }}</b><span>已掌握错题</span></div>
+        <div class="detail-item"><b>{{ display.confusionsOpen }}</b><span>待解决的「没懂」</span></div>
       </div>
     </el-card>
   </div>
@@ -73,7 +73,9 @@ export default {
         collections: { total: 0, done: 0 },
         confusions: { open: 0, total: 0 }
       },
-      charts: []
+      charts: [],
+      display: { notesDone: 0, notesTotal: 0, wrongActive: 0, reviewDue: 0, collectionsTotal: 0, reviewPlan: 0, reviewOverdue: 0, reviewDone: 0, wrongMastered: 0, confusionsOpen: 0 },
+      animTimers: []
     }
   },
   created() {
@@ -89,8 +91,45 @@ export default {
   beforeUnmount() {
     window.removeEventListener('resize', this.resizeCharts)
     this.charts.forEach(function (c) { c.dispose() })
+    this.animTimers.forEach(function (id) { cancelAnimationFrame(id) })
   },
   methods: {
+    startCountUp() {
+      var self = this
+      var targets = {
+        notesDone: this.stats.notes.done,
+        notesTotal: this.stats.notes.total,
+        wrongActive: this.stats.wrong_answers.active,
+        reviewDue: this.stats.review.due_today,
+        collectionsTotal: this.stats.collections.total,
+        reviewPlan: this.stats.review.total_plan,
+        reviewOverdue: this.stats.review.overdue,
+        reviewDone: this.stats.review.done_today,
+        wrongMastered: this.stats.wrong_answers.mastered,
+        confusionsOpen: this.stats.confusions.open
+      }
+      Object.keys(targets).forEach(function (key) {
+        self.animateTo(key, targets[key] || 0)
+      })
+    },
+    animateTo(key, target) {
+      var self = this
+      var start = 0
+      var duration = 900
+      var startTime = null
+      function step(ts) {
+        if (!startTime) startTime = ts
+        var p = Math.min((ts - startTime) / duration, 1)
+        var eased = 1 - Math.pow(1 - p, 3)
+        self.display[key] = Math.round(start + (target - start) * eased)
+        if (p < 1) {
+          var id = requestAnimationFrame(step)
+          self.animTimers.push(id)
+        }
+      }
+      var id = requestAnimationFrame(step)
+      this.animTimers.push(id)
+    },
     cssVar(name, fallback) {
       return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
     },
@@ -100,6 +139,7 @@ export default {
         var data = await api.get('/stats/summary')
         this.stats = data
         this.$nextTick(this.renderCharts)
+        this.startCountUp()
       } catch (e) {
         ElMessage.error(e.message)
       } finally {
@@ -221,7 +261,7 @@ export default {
 
 .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 16px; }
 .stat-card { border-radius: 12px; text-align: center; padding: 10px 0; }
-.stat-num { font-size: 26px; font-weight: 800; color: var(--c-primary); }
+.stat-num { font-size: 26px; font-weight: 800; color: var(--c-primary); font-variant-numeric: tabular-nums; }
 .stat-sub { font-size: 14px; font-weight: 400; color: var(--c-text-3); }
 .stat-label { font-size: 13px; color: var(--c-text-2); margin-top: 2px; }
 
