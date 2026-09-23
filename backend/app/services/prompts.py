@@ -337,6 +337,7 @@ def review_material_prompt(course_title: str, subject: str, distilled_notes: str
         "4. appendix：公式表（带名称和适用场景）、术语索引、速记卡、视频来源映射。\n"
         "【章节组织】\n"
         "1. 每章2-6个小节，每个小节聚焦一个完整知识点。\n"
+        "2. 【详细程度】输入的视频集数越多，资料越要详细充实。超过20集时每章至少4-6小节，每小节至少2-3个内容块（定义+推导+例题/对比），绝不能因视频多就过度精简。每个text块至少2句话，重要知识点必须完整展开，不能只给一句话结论。\n"
         "2. learning_objectives：按master（必须掌握，能默写能推导）、understand（理解原理，能解释）、know（了解概念，能识别）三级分类。\n"
         "3. 同一个知识点多个视频都讲了，必须合并成一个小节，取最完整的讲解。\n"
         "4. source_pages标注内容来自哪几集。\n"
@@ -359,6 +360,7 @@ def review_material_prompt(course_title: str, subject: str, distilled_notes: str
         "6. 单选options不带A./B.前缀，answer只给字母（A/B/C/D）。\n"
         "7. 填空answer按空位顺序，同空等价用/分隔，不同空用|分隔。\n"
         "8. 简答题answer给出完整参考答案要点（分点），explanation说明答题思路。\n"
+        "9. 答案和解析中所有数学公式必须用$...$包裹（如$rac{\sigma}{\varepsilon_0}$、$E=mc^2$），绝不能直接写\frac等LaTeX命令而不加$。\n"
         "【学科模板】\n"
         "▼ 数理类math（高数/线代/概率论/物理）\n"
         "通用结构：定义→定理/公式→推导证明→经典例题→适用条件→易错易混对比\n"

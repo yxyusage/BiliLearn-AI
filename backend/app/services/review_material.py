@@ -25,8 +25,8 @@ def distill_note(note_json: dict, page: int, title: str) -> dict:
                     blocks.append(b)
                 elif btype == "text":
                     content = str(b.get("content") or "")
-                    if len(content) > 300:
-                        content = content[:300] + "…"
+                    if len(content) > 800:
+                        content = content[:800] + "…"
                     blocks.append({"type": "text", "content": content})
             if blocks:
                 sections.append({
@@ -202,10 +202,29 @@ def _render_quiz(q: dict) -> str:
     return html
 
 
+_LATEX_CMDS = ("\\frac", "\\varepsilon", "\\sigma", "\\pi", "\\theta", "\\alpha",
+    "\\beta", "\\gamma", "\\delta", "\\lambda", "\\mu", "\\omega", "\\rho",
+    "\\sqrt", "\\sum", "\\int", "\\lim", "\\cdot", "\\times", "\\leq",
+    "\\geq", "\\neq", "\\approx", "\\partial", "\\nabla", "\\Delta",
+    "\\Sigma", "\\Omega", "\\Theta", "\\vec", "\\hat", "\\bar",
+    "\\sin", "\\cos", "\\tan", "\\log", "\\ln", "\\infty")
+
+
+def _wrap_latex(text: str) -> str:
+    if "$" in text:
+        return text
+    for cmd in _LATEX_CMDS:
+        if cmd in text:
+            return "$" + text + "$"
+    return text
+
+
 def _render_answer(a: dict) -> str:
     no = a.get("no", "?")
     answer = _render_inline(a.get("answer") or "")
+    answer = _wrap_latex(answer)
     explanation = _render_inline(a.get("explanation") or "")
+    explanation = _wrap_latex(explanation)
     html = '<div class="rm-answer-item"><span class="rm-answer-no">第' + str(no) + "题</span>"
     html += '<span class="rm-answer-text">答案：' + answer + "</span>"
     if explanation:
