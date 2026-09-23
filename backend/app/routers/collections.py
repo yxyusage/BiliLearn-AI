@@ -32,6 +32,10 @@ def _process_episode(p: dict, job_id: int, llm_cfg: dict, bvid: str, course_titl
         if existing:
             return {"page": page, "note_id": existing.id, "status": "done",
                     "title": existing.title, "error": "", "reused": True}
+        db.query(Note).filter(
+            Note.bvid == bvid, Note.page == page, Note.status.in_(["failed", "processing"])
+        ).delete(synchronize_session=False)
+        db.commit()
         note_title = (p.get("title") or "") or (course_title + " P" + str(page))
         note = Note(bvid=bvid, page=page, title=note_title, subject=subject,
                     status="processing", batch_id=job_id)
@@ -138,9 +142,9 @@ def start_job(req: CollectionStartRequest, db: Session = Depends(get_db)):
         e = req.end_page if req.end_page > 0 else len(pages)
         pages = [pg for pg in pages if s <= int(pg.get("page", 0)) <= e]
     try:
-        concurrency = max(1, min(4, int(get_setting(db, "collection_concurrency", "2") or "2")))
+        concurrency = max(1, min(6, int(get_setting(db, "collection_concurrency", "4") or "4")))
     except ValueError:
-        concurrency = 2
+        concurrency = 4
     job = CollectionJob(
         bvid=req.bvid,
         title=req.title or info.get("title") or "合集任务",
