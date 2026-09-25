@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="mermaid-view" :class="{ compact: compact }" v-loading="loading">
     <div v-if="error" class="mm-error">{{ error }}</div>
     <template v-else>
@@ -26,6 +26,7 @@ export default {
   data() {
     return { loading: false, error: '', seq: 0 }
   },
+  beforeUnmount() { this.cleanMermaidErrors() },
   watch: {
     code: {
       immediate: true,
@@ -76,6 +77,7 @@ export default {
       this.ensureInit()
       this.loading = true
       this.error = ''
+      this.cleanMermaidErrors()
       try {
         var id = 'mm-' + Date.now() + '-' + Math.floor(Math.random() * 1000)
         var result = await mermaid.render(id, this.code)
@@ -85,10 +87,21 @@ export default {
           this.bindClicks()
         }
       } catch (e) {
+        this.cleanMermaidErrors()
         if (mySeq === this.seq) this.error = '脑图渲染失败：' + (e.message || e)
       } finally {
+        this.cleanMermaidErrors()
         if (mySeq === this.seq) this.loading = false
       }
+    },
+    cleanMermaidErrors() {
+      try {
+        var sel = document.querySelectorAll('body > div[id^="dmermaid"], body > div[id^="mm-"], body > [id*="textmermaid"]')
+        sel.forEach(function (el) {
+          if (el.textContent && el.textContent.indexOf('Syntax error') >= 0) el.remove()
+          else if (el.id && el.id.indexOf('mm-') === 0 && !el.querySelector('svg')) el.remove()
+        })
+      } catch (e) { /* 忽略 */ }
     },
     bindClicks() {
       var self = this

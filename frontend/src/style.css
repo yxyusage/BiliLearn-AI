@@ -426,3 +426,10 @@ html.dark .chat-text code { background: color-mix(in srgb, var(--c-primary) 16%,
   .stat-value { font-size: 22px; }
   .note-card-thumb { width: 90px; height: 56px; font-size: 22px; }
 }
+
+/* 隐藏 Mermaid 库渲染失败时残留的错误元素 */
+body > div[id*="textmermaid"],
+body > div[id^="dmermaid"],
+body > div:has(> div:contains("Syntax error in text")) {
+  display: none !important;
+}
