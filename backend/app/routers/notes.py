@@ -92,6 +92,52 @@ def _build_chat_messages(note: Note, req: ChatRequest) -> list:
     return messages
 
 
+def _sync_collection_status(db, batch_id: int, bvid: str, page: int):
+    """单集笔记生成成功后，同步更新关联合集任务的失败计数。"""
+    try:
+        from ..models import CollectionJob
+        job = db.query(CollectionJob).filter(CollectionJob.id == batch_id).first()
+        if not job or not job.result_json:
+            return
+        results = json.loads(job.result_json)
+        changed = False
+        for r in results:
+            if r.get("page") == page and r.get("status") in ("failed", "pending"):
+                r["status"] = "done"
+                r["error"] = ""
+                changed = True
+        if changed:
+            job.result_json = json.dumps(results, ensure_ascii=False)
+            failed = sum(1 for r in results if r.get("status") == "failed")
+            done = sum(1 for r in results if r.get("status") == "done")
+            job.failed_count = failed
+            job.done_count = done
+            if job.total and failed == 0:
+                job.status = "done"
+            elif job.total and failed == job.total:
+                job.status = "failed"
+            else:
+                job.status = "partial"
+            db.commit()
+    except Exception:
+        pass
+
+
+def _is_network_error(exc: Exception) -> bool:
+    """判断异常是否为网络相关错误。"""
+    import httpx
+    if isinstance(exc, (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError,
+                        httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout,
+                        httpx.PoolTimeout, ConnectionError, OSError)):
+        return True
+    msg = str(exc).lower()
+    for kw in ("connection", "timeout", "network", "unreachable", "refused", "reset",
+               "download", "音视频", "音频", "视频流", "字幕获取", "yt_dlp", "errno"):
+        if kw in msg:
+            return True
+    return False
+
+
 def _run_generation(note_id: int, llm_cfg: dict):
     """后台线程执行：取字幕 → 分学科笔记 → 英语专项 → 落库。"""
     db = SessionLocal()
@@ -159,9 +205,16 @@ def _run_generation(note_id: int, llm_cfg: dict):
             note.summary = note_json.get("summary", "")
             note.status = "done"
             note.error = ""
+            # 若属于合集任务且之前标记为失败，更新合集计数
+            if note.batch_id:
+                _sync_collection_status(db, note.batch_id, note.bvid, note.page)
         except Exception as exc:  # noqa: BLE001
-            note.status = "failed"
-            note.error = str(exc)
+            if _is_network_error(exc):
+                note.status = "pending"
+                note.error = "网络中断，待恢复后继续：" + str(exc)[:200]
+            else:
+                note.status = "failed"
+                note.error = str(exc)
             traceback.print_exc()
         note.updated_at = datetime.datetime.utcnow()
         db.commit()
@@ -184,6 +237,17 @@ def generate_note(req: GenerateRequest, db: Session = Depends(get_db)):
     )
     if existing:
         return {"id": existing.id, "status": existing.status, "reused": True}
+    # 重新生成时清理同 bvid+page 的失败旧笔记，继承 batch_id
+    old_failed = db.query(Note).filter(
+        Note.bvid == req.bvid, Note.page == req.page, Note.status.in_(["failed", "pending"])
+    ).all()
+    inherited_batch_id = None
+    for n in old_failed:
+        if n.batch_id and not inherited_batch_id:
+            inherited_batch_id = n.batch_id
+    for n in old_failed:
+        db.delete(n)
+    db.commit()
     llm_cfg = resolve_llm_config(db, req.provider, req.api_key, req.model, req.base_url)
     if llm_cfg["provider"] != "ollama" and not llm_cfg["api_key"]:
         raise HTTPException(
@@ -191,7 +255,8 @@ def generate_note(req: GenerateRequest, db: Session = Depends(get_db)):
             detail="尚未配置 " + llm_cfg["provider"] + " 的 API Key，请先到「配置」页填写",
         )
     title = req.title or (req.bvid + " P" + str(req.page))
-    note = Note(bvid=req.bvid, page=req.page, title=title, subject=req.subject, status="processing")
+    note = Note(bvid=req.bvid, page=req.page, title=title, subject=req.subject,
+                status="processing", batch_id=inherited_batch_id)
     db.add(note)
     db.commit()
     db.refresh(note)

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="dashboard-page" v-loading="loading">
     <div class="page-head">
       <h2 class="page-title">📊 学习数据</h2>
@@ -6,22 +6,54 @@
     </div>
 
     <div class="stat-row">
-      <el-card shadow="never" class="stat-card">
-        <div class="stat-num">{{ display.notesDone }}<span class="stat-sub">/{{ display.notesTotal }}</span></div>
+      <div class="stat-card stagger-item" style="animation-delay:0ms">
+        <div class="stat-icon">📋</div>
+        <div class="stat-value">{{ display.notesDone }}<span style="font-size:16px;color:var(--c-text-3)">/{{ display.notesTotal }}</span></div>
         <div class="stat-label">已生成笔记</div>
-      </el-card>
-      <el-card shadow="never" class="stat-card">
-        <div class="stat-num">{{ display.wrongActive }}</div>
+      </div>
+      <div class="stat-card stagger-item" style="animation-delay:60ms">
+        <div class="stat-icon" style="background:var(--c-danger-soft)">❌</div>
+        <div class="stat-value">{{ display.wrongActive }}</div>
         <div class="stat-label">未掌握错题</div>
-      </el-card>
-      <el-card shadow="never" class="stat-card">
-        <div class="stat-num">{{ display.reviewDue }}</div>
-        <div class="stat-label">今日待复习（含逾期）</div>
-      </el-card>
-      <el-card shadow="never" class="stat-card">
-        <div class="stat-num">{{ display.collectionsTotal }}</div>
+      </div>
+      <div class="stat-card stagger-item" style="animation-delay:120ms">
+        <div class="stat-icon" style="background:var(--c-accent-soft)">🔄</div>
+        <div class="stat-value">{{ display.reviewDue }}</div>
+        <div class="stat-label">今日待复习</div>
+      </div>
+      <div class="stat-card stagger-item" style="animation-delay:180ms">
+        <div class="stat-icon" style="background:var(--c-success-soft)">📚</div>
+        <div class="stat-value">{{ display.collectionsTotal }}</div>
         <div class="stat-label">合集任务</div>
-      </el-card>
+      </div>
+    </div>
+
+    <div class="recent-section" v-if="recentNotes.length">
+      <div class="section-head">
+        <h3 class="section-title">最近笔记</h3>
+        <el-link type="primary" @click="$router.push('/history')">查看全部 →</el-link>
+      </div>
+      <div class="recent-grid">
+        <div
+          v-for="(n, i) in recentNotes"
+          :key="n.id"
+          class="note-card-h stagger-item"
+          :style="{animationDelay: (i * 60) + 'ms'}"
+          @click="$router.push('/note/' + n.id)"
+        >
+          <div class="note-card-thumb">🎬</div>
+          <div class="note-card-info">
+            <div class="note-card-title">{{ n.title }}</div>
+            <div class="note-card-meta">
+              <span>{{ subjectName(n.subject) }}</span>
+              <span>{{ formatDate(n.created_at) }}</span>
+              <el-tag v-if="n.status === 'done'" type="success" size="small">完成</el-tag>
+              <el-tag v-else-if="n.status === 'processing'" type="warning" size="small">生成中</el-tag>
+              <el-tag v-else type="danger" size="small">失败</el-tag>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="chart-grid">
@@ -74,6 +106,7 @@ export default {
         confusions: { open: 0, total: 0 }
       },
       charts: [],
+      recentNotes: [],
       display: { notesDone: 0, notesTotal: 0, wrongActive: 0, reviewDue: 0, collectionsTotal: 0, reviewPlan: 0, reviewOverdue: 0, reviewDone: 0, wrongMastered: 0, confusionsOpen: 0 },
       animTimers: []
     }
@@ -94,6 +127,20 @@ export default {
     this.animTimers.forEach(function (id) { cancelAnimationFrame(id) })
   },
   methods: {
+    loadRecent() {
+      api.get('/notes?limit=6').then((list) => {
+        this.recentNotes = list || []
+      }).catch(() => {})
+    },
+    subjectName(s) {
+      var names = { general: '通用', english: '英语', math: '数理', cs: '计算机', liberal: '文科' }
+      return names[s] || s
+    },
+    formatDate(d) {
+      if (!d) return ''
+      var dt = new Date(d)
+      return (dt.getMonth() + 1) + '/' + dt.getDate()
+    },
     startCountUp() {
       var self = this
       var targets = {
@@ -135,6 +182,7 @@ export default {
     },
     async load() {
       this.loading = true
+      this.loadRecent()
       try {
         var data = await api.get('/stats/summary')
         this.stats = data
@@ -280,4 +328,9 @@ export default {
   .stat-row { grid-template-columns: repeat(2, 1fr); }
   .chart-grid { grid-template-columns: 1fr; }
 }
+.recent-section { margin: 24px 0 8px; }
+.section-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.section-title { font-size: 16px; font-weight: 600; color: var(--c-text); margin: 0; }
+.recent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; }
+@media (max-width: 768px) { .recent-grid { grid-template-columns: 1fr; } }
 </style>

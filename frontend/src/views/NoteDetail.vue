@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="note-detail" v-loading="loading">
     <!-- 生成中 -->
     <div v-if="status === 'processing'" class="status-box">
@@ -483,7 +483,11 @@
       </div>
 
       <!-- AI 答疑抽屉 -->
-      <el-drawer v-model="chatVisible" title="💬 AI 答疑（基于本笔记）" size="440px">
+      <div class="ai-panel" :class="{open: chatVisible}">
+        <div class="ai-panel-header">
+          <span class="ai-panel-title">💬 AI 答疑</span>
+          <button class="ai-panel-close" @click="chatVisible = false">✕</button>
+        </div>
         <div class="chat-wrap">
           <div class="chat-actions">
             <el-button size="small" text @click="clearChat">清空对话</el-button>
@@ -534,7 +538,7 @@
             <el-button v-else type="primary" @click="sendChat">发送</el-button>
           </div>
         </div>
-      </el-drawer>
+      </div>
 
       <!-- 没懂：AI 换讲 -->
       <el-dialog v-model="confusionVisible" title="🙋 没懂？换个讲法" width="600px">
@@ -563,6 +567,7 @@
         </template>
       </el-dialog>
     </template>
+    <button class="ai-fab" @click="chatVisible = true" title="AI 答疑">💬</button>
   </div>
 </template>
 
@@ -1434,7 +1439,10 @@ html.dark .diag-head { color: var(--c-primary); }
 .note-main, .diagnosis-card, .intro-collapse, .quiz-entry { margin-left: 0; }
 /* 右侧固定竖排目录 + 阅读进度条 */
 .toc-rail {
-  position: fixed; right: 0; top: 200px; z-index: 30;
+  position: fixed;
+  background: color-mix(in srgb, var(--c-bg-elev) 85%, transparent);
+  backdrop-filter: blur(14px) saturate(1.5);
+  -webkit-backdrop-filter: blur(14px) saturate(1.5); right: 0; top: 200px; z-index: 30;
   display: flex; align-items: stretch;
   transition: transform .25s ease;
   transform: translateX(calc(100% - 30px));
@@ -1485,10 +1493,20 @@ html.dark .toc-no { color: #08231f; }
   background: var(--c-primary); transition: height .12s ease-out;
 }
 
-.chapter { margin-bottom: 26px; }
+.chapter {
+  margin-bottom: 26px;
+  position: relative;
+  padding-left: 14px;
+}
+.chapter::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 8px; bottom: 8px;
+  width: 3px; border-radius: 2px;
+  background: linear-gradient(180deg, var(--c-primary), color-mix(in srgb, var(--c-primary) 30%, transparent));
+}
 .chapter-title {
   margin: 14px 0 6px; font-size: 17px; font-weight: 700; color: var(--c-text);
-  border-left: 4px solid var(--c-primary); padding: 2px 0 2px 10px;
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
 }
 .chapter-no {

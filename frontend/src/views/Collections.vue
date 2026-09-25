@@ -7,65 +7,77 @@
         <el-button size="small" @click="loadJobs">刷新</el-button>
       </div>
       <div v-if="loading" class="skeleton-wrap">
-        <div v-for="i in 4" :key="i" class="skeleton skeleton-card"></div>
+        <div v-for="i in 4" :key="i" class="skeleton" style="height:160px;border-radius:14px;margin-bottom:12px"></div>
       </div>
-      <el-table v-else :data="jobs">
-        <template #empty>
-          <div class="empty-state">
-            <div class="empty-icon">📦</div>
-            <p class="empty-title">还没有合集任务</p>
-            <p class="empty-desc">在首页粘贴合集链接，选择集数范围后批量生成笔记</p>
-            <el-button type="primary" @click="$router.push('/')">去首页解析合集</el-button>
+      <div v-else-if="jobs.length === 0" class="empty-state-v2">
+        <div class="empty-illustration">📦</div>
+        <p class="empty-title-v2">还没有合集任务</p>
+        <p class="empty-desc-v2">在首页粘贴合集链接，选择集数范围后批量生成笔记</p>
+        <el-button type="primary" @click="$router.push('/')">去首页解析合集</el-button>
+      </div>
+      <div v-else class="collection-grid">
+        <div
+          v-for="(job, i) in jobs"
+          :key="job.id"
+          class="collection-card stagger-item"
+          :style="{animationDelay: (i * 60) + 'ms'}"
+          @click="$router.push('/collections/' + job.id)"
+        >
+          <div class="collection-cover">
+            <span>📚</span>
+            <el-tag
+              v-if="job.status === 'running'" type="warning" size="small"
+              style="position:absolute;top:10px;right:10px;z-index:2"
+            >进行中</el-tag>
+            <el-tag
+              v-else-if="job.status === 'done'" type="success" size="small"
+              style="position:absolute;top:10px;right:10px;z-index:2"
+            >完成</el-tag>
+            <el-tag
+              v-else-if="job.status === 'paused'" type="warning" size="small"
+              style="position:absolute;top:10px;right:10px;z-index:2"
+            >已暂停</el-tag>
+            <el-tag
+              v-else-if="job.status === 'partial'" type="warning" size="small"
+              style="position:absolute;top:10px;right:10px;z-index:2"
+            >部分失败</el-tag>
+            <el-tag
+              v-else type="danger" size="small"
+              style="position:absolute;top:10px;right:10px;z-index:2"
+            >失败</el-tag>
           </div>
-        </template>
-        <el-table-column label="课程" min-width="220">
-          <template #default="scope">
-            <el-link type="primary" @click="$router.push('/collections/' + scope.row.id)">{{ scope.row.title }}</el-link>
-          </template>
-        </el-table-column>
-        <el-table-column label="学科" width="80">
-          <template #default="scope">{{ subjectName(scope.row.subject) }}</template>
-        </el-table-column>
-        <el-table-column label="进度" min-width="170">
-          <template #default="scope">
+          <div class="collection-body">
+            <div class="collection-title">{{ job.title }}</div>
+            <div class="collection-meta">
+              <span>{{ subjectName(job.subject) }}</span>
+              <span>{{ job.done_count }}/{{ job.total }} 集</span>
+            </div>
             <el-progress
-              :percentage="scope.row.total ? Math.round(scope.row.done_count * 100 / scope.row.total) : 0"
-              :status="scope.row.status === 'done' ? 'success' : (scope.row.status === 'failed' ? 'exception' : undefined)"
+              :percentage="job.total ? Math.round(job.done_count * 100 / job.total) : 0"
+              :status="job.status === 'done' ? 'success' : undefined"
+              :stroke-width="6"
+              style="margin-top:10px"
             />
-            <span class="progress-text">{{ scope.row.done_count }}/{{ scope.row.total }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="90">
-          <template #default="scope">
-            <el-tag v-if="scope.row.status === 'running'" type="warning">进行中</el-tag>
-            <el-tag v-else-if="scope.row.status === 'cancelling'" type="info">取消中</el-tag>
-            <el-tag v-else-if="scope.row.status === 'cancelled'" type="info">已取消</el-tag>
-            <el-tag v-else-if="scope.row.status === 'done'" type="success">完成</el-tag>
-            <el-tag v-else-if="scope.row.status === 'partial'" type="warning">部分失败</el-tag>
-            <el-tag v-else type="danger">失败</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="图谱" width="80">
-          <template #default="scope">
-            <el-tag v-if="scope.row.has_map" type="info" size="small">已生成</el-tag>
-            <span v-else style="color:var(--c-text-3)">—</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="130">
-          <template #default="scope">
-            <el-button
-              v-if="scope.row.status === 'running'"
-              size="small" type="warning" text
-              @click="cancelJob(scope.row)"
-            >取消</el-button>
-            <el-popconfirm title="删除该任务（不删除已生成笔记）？" @confirm="removeJob(scope.row)">
-              <template #reference>
-                <el-button size="small" type="danger" text>删除</el-button>
-              </template>
-            </el-popconfirm>
-          </template>
-        </el-table-column>
-      </el-table>
+            <div class="collection-actions" @click.stop>
+              <el-button
+                v-if="job.status === 'running'"
+                size="small" type="warning" text
+                @click="cancelJob(job)"
+              >取消</el-button>
+              <el-button
+                v-if="job.status === 'paused' || job.status === 'partial' || job.status === 'failed'"
+                size="small" type="primary" text
+                @click="resumeJob(job)"
+              >继续生成</el-button>
+              <el-popconfirm title="删除该任务？" @confirm="removeJob(job)">
+                <template #reference>
+                  <el-button size="small" type="danger" text>删除</el-button>
+                </template>
+              </el-popconfirm>
+            </div>
+          </div>
+        </div>
+      </div>
     </el-card>
 
     <!-- 任务详情 -->
@@ -79,12 +91,18 @@
           <el-tag v-else-if="job.status === 'cancelled'" type="info">已取消</el-tag>
           <el-tag v-else-if="job.status === 'done'" type="success">全部完成</el-tag>
           <el-tag v-else-if="job.status === 'partial'" type="warning">部分失败</el-tag>
+          <el-tag v-else-if="job.status === 'paused'" type="warning">已暂停（网络中断，可继续）</el-tag>
           <el-tag v-else type="danger">失败</el-tag>
           <el-button
             v-if="job.status === 'running'"
             size="small" type="warning" plain
             @click="cancelJob(job)"
           >取消任务</el-button>
+          <el-button
+            v-if="job.status === 'paused' || job.status === 'partial' || job.status === 'failed'"
+            size="small" type="primary" plain
+            @click="resumeJob(job)"
+          >继续生成未完成的集数</el-button>
         </div>
         <el-progress
           :percentage="job.total ? Math.round((job.done_count + job.failed_count) * 100 / job.total) : 0"
@@ -117,12 +135,16 @@
               <div v-for="(r, i) in job.results" :key="i" class="result-item">
                 <span class="result-page">P{{ r.page }}</span>
                 <el-link v-if="r.status === 'done'" type="primary" @click="openNote(r)">{{ r.title }}</el-link>
+                <el-tooltip v-else-if="r.status === 'pending'" :content="r.error" placement="top" :show-after="200">
+                  <span class="result-title result-pending">{{ r.title }}（网络中断，可继续）</span>
+                </el-tooltip>
                 <el-tooltip v-else-if="r.error" :content="r.error" placement="top" :show-after="200">
                   <span class="result-title result-failed">{{ r.title }}（失败，悬停看原因）</span>
                 </el-tooltip>
                 <span v-else class="result-title">{{ r.title }}</span>
                 <el-tag v-if="r.status === 'done' && r.reused" type="info" size="small">复用</el-tag>
                 <el-tag v-else-if="r.status === 'done'" type="success" size="small">完成</el-tag>
+                <el-tag v-else-if="r.status === 'pending'" type="warning" size="small">网络中断</el-tag>
                 <el-tag v-else type="danger" size="small">失败</el-tag>
               </div>
             </div>
@@ -287,6 +309,20 @@ export default {
         ElMessage.error(e.response?.data?.detail || e.message)
       }
     },
+    async resumeJob(row) {
+      try {
+        var res = await api.post('/collections/' + row.id + '/resume')
+        if (res.ok) {
+          ElMessage.success('已继续生成，剩余 ' + (res.total || 0) + ' 集')
+          if (this.jobId) this.loadJob()
+          else this.loadJobs()
+        } else {
+          ElMessage.warning(res.message || '无法继续')
+        }
+      } catch (e) {
+        ElMessage.error(e.response?.data?.detail || e.message)
+      }
+    },
     async removeJob(row) {
       try {
         await api.delete('/collections/' + row.id)
@@ -354,6 +390,7 @@ export default {
 .result-page { color: var(--c-primary); font-weight: 600; flex-shrink: 0; }
 .result-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-text-2); }
 .result-failed { color: var(--c-danger); cursor: help; }
+.result-pending { color: var(--c-accent); cursor: help; }
 h4 { margin: 0 0 10px; }
 
 .empty-state { padding: 40px 20px; text-align: center; }
@@ -361,4 +398,7 @@ h4 { margin: 0 0 10px; }
 .empty-title { font-size: 16px; font-weight: 600; color: var(--c-text); margin: 0 0 6px; }
 .empty-desc { font-size: 13px; color: var(--c-text-3); margin: 0 0 16px; }
 .skeleton-wrap { padding: 8px 0; }
+.collection-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.collection-actions { display: flex; gap: 4px; margin-top: 10px; }
+@media (max-width: 768px) { .collection-grid { grid-template-columns: 1fr; } }
 </style>

@@ -110,9 +110,9 @@ def start_favorites(req: FavStartRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="尚未配置 API Key")
     cookie = get_setting(db, "bili_cookie", "")
     try:
-        concurrency = max(1, min(4, int(get_setting(db, "collection_concurrency", "2") or "2")))
+        concurrency = max(1, min(6, int(get_setting(db, "collection_concurrency", "4") or "4")))
     except ValueError:
-        concurrency = 2
+        concurrency = 4
     note_ids = []
     collection_job_ids = []
     for item in req.items:

@@ -27,25 +27,35 @@
     </div>
 
     <div v-if="q.type === 'single' && q.options.length" class="q-options">
-      <el-radio-group v-model="selected" :disabled="revealed" :name="'quiz-' + index">
-        <el-radio
-          v-for="(opt, oi) in q.options"
-          :key="oi"
-          :value="optionKey(oi)"
-          :name="'quiz-' + index"
-          class="q-option"
-          :class="optionClass(optionKey(oi))"
-        >
-          <span class="opt-key">{{ optionKey(oi) }}.</span> <LatexText :text="opt" />
-        </el-radio>
-      </el-radio-group>
+      <div
+        v-for="(opt, oi) in q.options"
+        :key="oi"
+        class="quiz-option-card"
+        :class="[optionClass(optionKey(oi)), {selected: selected === optionKey(oi)}]"
+        @click="!revealed && (selected = optionKey(oi))"
+      >
+        <span class="quiz-option-label">{{ optionKey(oi) }}</span>
+        <span class="quiz-option-text"><LatexText :text="opt" /></span>
+      </div>
     </div>
 
     <div v-else-if="q.type === 'judge'" class="q-options">
-      <el-radio-group v-model="selected" :disabled="revealed" :name="'quiz-' + index">
-        <el-radio value="正确" class="q-option" :class="optionClass('正确')">✓ 正确</el-radio>
-        <el-radio value="错误" class="q-option" :class="optionClass('错误')">✗ 错误</el-radio>
-      </el-radio-group>
+      <div
+        class="quiz-option-card"
+        :class="[optionClass('正确'), {selected: selected === '正确'}]"
+        @click="!revealed && (selected = '正确')"
+      >
+        <span class="quiz-option-label">✓</span>
+        <span class="quiz-option-text">正确</span>
+      </div>
+      <div
+        class="quiz-option-card"
+        :class="[optionClass('错误'), {selected: selected === '错误'}]"
+        @click="!revealed && (selected = '错误')"
+      >
+        <span class="quiz-option-label">✗</span>
+        <span class="quiz-option-text">错误</span>
+      </div>
     </div>
 
     <div v-else class="q-text">
@@ -209,13 +219,8 @@ export default {
     },
     optionClass(key) {
       if (!this.revealed) return ''
-      if (this.q.type === 'judge') {
-        if (key === this.q.answer) return 'opt-right'
-        if (key === this.selected && this.selected !== this.q.answer) return 'opt-wrong'
-        return ''
-      }
-      if (key === this.q.answer) return 'opt-right'
-      if (key === this.selected && this.selected !== this.q.answer) return 'opt-wrong'
+      if (key === this.q.answer) return 'correct'
+      if (key === this.selected && this.selected !== this.q.answer) return 'wrong'
       return ''
     },
     async record(correct) {

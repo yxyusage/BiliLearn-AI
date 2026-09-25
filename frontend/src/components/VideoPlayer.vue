@@ -3,11 +3,10 @@
     <iframe :src="src" scrolling="no" frameborder="0" allowfullscreen="true" @load="onLoad"></iframe>
     <el-tooltip placement="bottom-end" effect="dark">
       <template #content>
-        外链播放器默认按浏览器 B 站登录态给清晰度。<br />
-        若不够清晰，可在播放器右下角「清晰度」中手动切换，<br />
-        登录 B 站账号后通常可选 1080P。
+        登录 B 站账号后可在播放器右下角调节倍速与清晰度。<br />
+        未登录时部分功能受限，点击会跳转 B 站登录页。
       </template>
-      <span class="vp-hint">🎞 清晰度</span>
+      <span class="vp-hint">💡 登录B站可调倍速/清晰度</span>
     </el-tooltip>
     <div v-if="loading" class="vp-loading">
       <span class="vp-spinner"></span>

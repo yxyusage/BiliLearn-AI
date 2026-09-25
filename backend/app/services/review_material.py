@@ -282,6 +282,11 @@ def render_review_material_html(data: dict, meta: Optional[dict] = None, page_nu
         page_num = page_numbers[i] if page_numbers and i < len(page_numbers) else ""
         page_span = '<span class="rm-toc-page">' + str(page_num) + "</span>" if page_num else ""
         toc_items += '<li><a href="#rm-ch-' + str(i) + '"><span class="rm-toc-title">' + ch_title + "</span>" + page_span + "</a></li>"
+    if answers:
+        toc_items += '<li><a href="#rm-answers"><span class="rm-toc-title">答案篇</span></a></li>'
+    has_appendix = bool(appendix.get("formula_sheet") or appendix.get("glossary") or appendix.get("flash_cards") or appendix.get("source_map"))
+    if has_appendix:
+        toc_items += '<li><a href="#rm-appendix"><span class="rm-toc-title">附录</span></a></li>'
 
     body = ""
     for i, ch in enumerate(chapters):
@@ -344,12 +349,16 @@ def render_review_material_html(data: dict, meta: Optional[dict] = None, page_nu
         body += '<h2 class="rm-chapter-title">答案篇</h2>'
         current_chapter = ""
         for a in answers:
-            ch_name = a.get("chapter") or ""
+            ch_idx = a.get("chapter_index")
+            if ch_idx and isinstance(ch_idx, int) and 1 <= ch_idx <= len(chapters):
+                ch_name = chapters[ch_idx - 1].get("title") or ("第" + str(ch_idx) + "章")
+            else:
+                ch_name = a.get("chapter") or ("第" + str(ch_idx) + "章" if ch_idx else "未分类")
             if ch_name != current_chapter:
                 if current_chapter:
                     body += "</div>"
                 current_chapter = ch_name
-                body += '<div class="rm-answer-chapter"><h3 class="rm-answer-chapter-title">' + _esc(ch_name) + "</h3>"
+                body += '<div class="rm-answer-chapter"><h3 class="rm-answer-chapter-title">' + _esc(ch_name) + " 答案</h3>"
             body += _render_answer(a)
         if current_chapter:
             body += "</div>"
@@ -361,7 +370,7 @@ def render_review_material_html(data: dict, meta: Optional[dict] = None, page_nu
     source_map = appendix.get("source_map") or []
 
     if formula_sheet or glossary or flash_cards or source_map:
-        body += '<div class="rm-appendix">'
+        body += '<div class="rm-appendix" id="rm-appendix">'
         body += '<h2 class="rm-chapter-title">附录</h2>'
         if formula_sheet:
             body += '<h3 class="rm-section-title">核心公式表</h3>'

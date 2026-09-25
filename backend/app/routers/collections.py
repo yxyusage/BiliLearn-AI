@@ -56,6 +56,10 @@ def _process_episode(p: dict, job_id: int, llm_cfg: dict, bvid: str, course_titl
         note = db2.query(Note).filter(Note.id == note_id).first()
         if note and note.status == "done":
             return {"page": page, "note_id": note.id, "status": "done", "title": note.title, "error": ""}
+        if note and note.status == "pending":
+            return {"page": page, "note_id": note_id, "status": "pending",
+                    "title": note.title if note else note_title,
+                    "error": note.error or "网络中断"}
         return {
             "page": page, "note_id": note_id, "status": "failed",
             "title": note.title if note else note_title,
@@ -100,6 +104,12 @@ def _run_job(job_id: int, llm_cfg: dict, pages: list, bvid: str, course_title: s
                         results.sort(key=lambda x: x["page"])
                         if r["status"] == "done":
                             job.done_count += 1
+                        elif r["status"] == "pending":
+                            job.failed_count += 1
+                            # 连续网络错误超过3个，暂停任务
+                            pending_count = sum(1 for x in results if x["status"] == "pending")
+                            if pending_count >= 3:
+                                cancelled = True
                         else:
                             job.failed_count += 1
                         job.current_page = r["page"]
@@ -108,10 +118,15 @@ def _run_job(job_id: int, llm_cfg: dict, pages: list, bvid: str, course_title: s
 
         db.expire_all()
         job = db.query(CollectionJob).filter(CollectionJob.id == job_id).first()
-        if cancelled:
+        has_pending = any(r.get("status") == "pending" for r in results)
+        if cancelled and has_pending:
+            job.status = "paused"
+        elif cancelled:
             job.status = "cancelled"
-        elif job.total and job.failed_count == job.total:
+        elif job.total and job.failed_count == job.total and not has_pending:
             job.status = "failed"
+        elif has_pending:
+            job.status = "paused"
         elif job.failed_count == 0:
             job.status = "done"
         else:
@@ -173,6 +188,66 @@ def cancel_job(job_id: int, db: Session = Depends(get_db)):
         db.commit()
         return {"ok": True, "status": "cancelling"}
     return {"ok": False, "message": "任务已结束，无需取消"}
+
+
+@router.post("/{job_id}/resume")
+def resume_job(job_id: int, db: Session = Depends(get_db)):
+    job = db.query(CollectionJob).filter(CollectionJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if job.status not in ("paused", "partial", "failed"):
+        return {"ok": False, "message": "当前状态无需继续（" + job.status + "）"}
+    # 清理 pending 状态的旧笔记
+    pending_notes = db.query(Note).filter(
+        Note.bvid == job.bvid, Note.status == "pending", Note.batch_id == job_id
+    ).all()
+    for n in pending_notes:
+        db.delete(n)
+    db.commit()
+    # 找出还未成功的集数
+    if job.result_json:
+        try:
+            results = json.loads(job.result_json)
+        except Exception:
+            results = []
+    else:
+        results = []
+    done_pages = {r["page"] for r in results if r.get("status") == "done"}
+    # 重新获取合集信息
+    cookie = get_setting(db, "bili_cookie", "")
+    try:
+        info = bilibili.parse_video("https://www.bilibili.com/video/" + job.bvid, cookie)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="视频解析失败：" + str(exc)) from exc
+    pages = info.get("pages") or [{"page": 1, "title": info.get("title") or ""}]
+    remaining = [pg for pg in pages if int(pg.get("page", 0)) not in done_pages]
+    if not remaining:
+        job.status = "done"
+        db.commit()
+        return {"ok": True, "message": "所有集数已完成", "total": 0}
+    llm_cfg = resolve_llm_config(db)
+    if llm_cfg["provider"] != "ollama" and not llm_cfg["api_key"]:
+        raise HTTPException(status_code=400, detail="尚未配置 API Key")
+    try:
+        concurrency = max(1, min(6, int(get_setting(db, "collection_concurrency", "4") or "4")))
+    except ValueError:
+        concurrency = 4
+    # 重置计数：只保留已完成的
+    job.done_count = len(done_pages)
+    job.failed_count = 0
+    job.status = "running"
+    job.current_page = 0
+    # 保留已完成的结果，移除 pending/failed 的
+    job.result_json = json.dumps(
+        [r for r in results if r.get("status") == "done"], ensure_ascii=False
+    )
+    db.commit()
+    threading.Thread(
+        target=_run_job,
+        args=(job.id, llm_cfg, remaining, job.bvid, job.title, job.subject, concurrency),
+        daemon=True,
+    ).start()
+    return {"ok": True, "total": len(remaining), "status": "running"}
 
 
 @router.get("")

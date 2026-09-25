@@ -22,50 +22,45 @@
       </div>
 
       <div v-if="loading" class="skeleton-wrap">
-        <div v-for="i in 5" :key="i" class="skeleton skeleton-card"></div>
+        <div v-for="i in 6" :key="i" class="skeleton skeleton-card" style="height:100px"></div>
       </div>
-      <el-table v-else :data="filtered">
-        <template #empty>
-          <div class="empty-state">
-            <div class="empty-icon">📚</div>
-            <p class="empty-title">还没有笔记</p>
-            <p class="empty-desc">粘贴 B 站视频链接，AI 自动生成带时间戳的结构化笔记</p>
-            <el-button type="primary" @click="$router.push('/')">去生成第一份笔记</el-button>
+      <div v-else-if="filtered.length === 0" class="empty-state-v2">
+        <div class="empty-illustration">📚</div>
+        <p class="empty-title-v2">还没有笔记</p>
+        <p class="empty-desc-v2">粘贴 B 站视频链接，AI 自动生成带时间戳的结构化笔记</p>
+        <el-button type="primary" @click="$router.push('/')">去生成第一份笔记</el-button>
+      </div>
+      <div v-else class="note-grid">
+        <div
+          v-for="(n, i) in filtered"
+          :key="n.id"
+          class="note-card-h stagger-item"
+          :style="{animationDelay: (i * 50) + 'ms'}"
+        >
+          <div class="note-card-thumb" @click="open(n)">🎬</div>
+          <div class="note-card-info" @click="open(n)">
+            <div class="note-card-title">{{ n.title }}</div>
+            <div class="note-card-meta">
+              <span>{{ subjectName(n.subject) }}</span>
+              <span>{{ humanize(n.created_at) }}</span>
+              <el-tag v-if="n.status === 'done'" type="success" size="small">已完成</el-tag>
+              <el-tag v-else-if="n.status === 'processing'" type="warning" size="small">生成中</el-tag>
+              <el-tooltip v-else-if="n.status === 'failed'" :content="n.error || '生成失败'" placement="top">
+                <el-tag type="danger" size="small">失败</el-tag>
+              </el-tooltip>
+              <el-tag v-else type="info" size="small">待处理</el-tag>
+            </div>
           </div>
-        </template>
-        <el-table-column label="标题" min-width="240">
-          <template #default="scope">
-            <el-link type="primary" @click="open(scope.row)">{{ scope.row.title }}</el-link>
-          </template>
-        </el-table-column>
-        <el-table-column label="学科" width="90">
-          <template #default="scope">{{ subjectName(scope.row.subject) }}</template>
-        </el-table-column>
-        <el-table-column label="状态" width="100">
-          <template #default="scope">
-            <el-tag v-if="scope.row.status === 'done'" type="success">已完成</el-tag>
-            <el-tag v-else-if="scope.row.status === 'processing'" type="warning">生成中</el-tag>
-            <el-tooltip v-else-if="scope.row.status === 'failed'" :content="scope.row.error || '生成失败'" placement="top">
-              <el-tag type="danger">失败</el-tag>
-            </el-tooltip>
-            <el-tag v-else type="info">待处理</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="时间" width="110">
-          <template #default="scope">{{ humanize(scope.row.created_at) }}</template>
-        </el-table-column>
-        <el-table-column label="操作" width="180">
-          <template #default="scope">
-            <el-button size="small" @click="open(scope.row)">查看</el-button>
-            <el-button v-if="scope.row.status === 'failed'" size="small" type="warning" @click="retry(scope.row)">重试</el-button>
-            <el-popconfirm title="确认删除这份笔记？" @confirm="remove(scope.row)">
+          <div class="note-card-actions">
+            <el-button v-if="n.status === 'failed'" size="small" type="warning" @click.stop="retry(n)">重试</el-button>
+            <el-popconfirm title="确认删除？" @confirm="remove(n)">
               <template #reference>
                 <el-button size="small" type="danger" text>删除</el-button>
               </template>
             </el-popconfirm>
-          </template>
-        </el-table-column>
-      </el-table>
+          </div>
+        </div>
+      </div>
     </el-card>
   </div>
 </template>
@@ -176,4 +171,6 @@ export default {
 .empty-title { font-size: 16px; font-weight: 600; color: var(--c-text); margin: 0 0 6px; }
 .empty-desc { font-size: 13px; color: var(--c-text-3); margin: 0 0 16px; }
 .skeleton-wrap { padding: 8px 0; }
+.note-grid { display: flex; flex-direction: column; gap: 10px; }
+.note-card-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 </style>
