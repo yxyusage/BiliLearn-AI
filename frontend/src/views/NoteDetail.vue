@@ -720,6 +720,7 @@ export default {
     this.load()
   },
   mounted() {
+    document.body.classList.add('note-detail-page')
     this.$nextTick(function () {
       var cp = document.querySelector('.content-panel')
       if (cp) {
@@ -730,6 +731,7 @@ export default {
     })
   },
   beforeUnmount() {
+    document.body.classList.remove('note-detail-page')
     this.stopPolling()
     this.stopDrag()
     this.stopChat()

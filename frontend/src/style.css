@@ -433,3 +433,18 @@ body > div[id^="dmermaid"],
 body > div:has(> div:contains("Syntax error in text")) {
   display: none !important;
 }
+
+/* 笔记详情页占满宽度，避免左右分栏时右侧大片空白 */
+body.note-detail-page .app-main {
+  max-width: none !important;
+  width: 100% !important;
+  padding-left: 20px !important;
+  padding-right: 20px !important;
+}
+body.note-detail-page .app-main.with-sidebar {
+  max-width: none !important;
+}
+/* 左右分栏时内容区占满高度 */
+body.note-detail-page .layout.split {
+  height: calc(100vh - 140px);
+}
