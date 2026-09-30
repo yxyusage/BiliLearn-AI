@@ -1,23 +1,37 @@
-const API_BASE = 'http://127.0.0.1:8000/api';
+﻿const API_BASE = 'http://127.0.0.1:8000/api';
 const BILIBILI_VIDEO_PATTERN = /^https?:\/\/([a-z0-9-]+\.)?bilibili\.com\/video\//;
 
 const injectedTabs = new Set();
 
 async function injectContentScript(tabId) {
   if (injectedTabs.has(tabId)) return;
+  console.log('[BiliLearn] Attempting inject into tab', tabId);
+  console.log('[BiliLearn] chrome.scripting exists:', !!chrome.scripting);
+  console.log('[BiliLearn] chrome.scripting.executeScript exists:', !!(chrome.scripting && chrome.scripting.executeScript));
+  try {
+    var tab = await chrome.tabs.get(tabId);
+    console.log('[BiliLearn] tab url:', tab.url, 'status:', tab.status);
+  } catch(e) {
+    console.warn('[BiliLearn] get tab failed:', e.message);
+  }
   try {
     await chrome.scripting.executeScript({
-      target: { tabId: tabId },
+      target: { tabId: tabId, allFrames: false },
       files: ['content/content.js']
     });
-    await chrome.scripting.insertCSS({
-      target: { tabId: tabId },
-      files: ['content/content.css']
-    });
+    try {
+      await chrome.scripting.insertCSS({
+        target: { tabId: tabId },
+        files: ['content/content.css']
+      });
+    } catch(cssErr) {
+      console.warn('[BiliLearn] CSS inject failed (non-critical):', cssErr.message);
+    }
     injectedTabs.add(tabId);
-    console.log('BiliLearn content script injected into tab', tabId);
+    console.log('[BiliLearn] content script injected successfully into tab', tabId);
   } catch (e) {
-    console.warn('Failed to inject content script:', e.message);
+    console.error('[BiliLearn] JS inject FAILED:', e.message);
+    console.error('[BiliLearn] Full error object:', JSON.stringify(e));
   }
 }
 
