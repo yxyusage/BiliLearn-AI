@@ -1,5 +1,5 @@
 const API_BASE = 'http://127.0.0.1:8000/api';
-const BILIBILI_VIDEO_PATTERN = /^https?:\/\/(www\.)?bilibili\.com\/video\//;
+const BILIBILI_VIDEO_PATTERN = /^https?:\/\/([a-z0-9-]+\.)?bilibili\.com\/video\//;
 
 const injectedTabs = new Set();
 

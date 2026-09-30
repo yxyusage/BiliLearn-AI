@@ -5,8 +5,7 @@
   "description": "在 B 站看视频时一键生成 AI 结构化笔记，支持时间戳跳转、知识点浏览",
   "permissions": ["activeTab", "storage", "scripting", "tabs"],
   "host_permissions": [
-    "https://www.bilibili.com/*",
-    "https://bilibili.com/*",
+    "https://*.bilibili.com/*",
     "http://127.0.0.1:8000/*",
     "http://localhost:8000/*"
   ],
@@ -16,8 +15,7 @@
   "content_scripts": [
     {
       "matches": [
-        "https://www.bilibili.com/video/*",
-        "https://bilibili.com/video/*"
+        "https://*.bilibili.com/video/*"
       ],
       "js": ["content/content.js"],
       "css": ["content/content.css"],
