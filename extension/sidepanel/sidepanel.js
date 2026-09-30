@@ -11,7 +11,7 @@
     pollTimer: null,
     chatHistory: [],
     view: 'note-list',
-    prevView: null,
+    navStack: [],
     currentCollection: null,
     settings: {
       fontSize: 14,
@@ -29,6 +29,7 @@
   function initEls() {
     els.backBtn = $('backBtn');
     els.appTitle = $('appTitle');
+    els.refreshBtn = $('refreshBtn');
     els.videoInfo = $('videoInfo');
     els.themeToggle = $('themeToggle');
     els.openFullBtn = $('openFullBtn');
@@ -252,11 +253,12 @@
     });
   }
 
-  async function openNoteById(noteId) {
+  async function openNoteById(noteId, skipPush) {
     showNoteState('loading');
     try {
       var resp = await sendBg({ type: 'getNoteDetail', noteId: noteId });
       if (resp.ok && resp.data) {
+        if (!skipPush) pushNav();
         state.note = resp.data;
         state.noteDetail = resp.data;
         if (resp.data.status === 'done') {
@@ -268,6 +270,7 @@
           showNoteState('generating');
           startPolling(noteId);
         } else {
+          state.navStack.pop();
           showNoteState('none');
           loadRecentNotes();
         }
@@ -595,9 +598,8 @@
   }
 
   function setView(view) {
-    state.prevView = state.view;
     state.view = view;
-    els.backBtn.style.display = (view === 'note-detail' || view === 'coll-detail') ? 'block' : 'none';
+    els.backBtn.style.display = state.navStack.length > 0 ? 'block' : 'none';
     if (view === 'coll-detail') {
       els.collListContainer.style.display = 'none';
       els.collDetailContainer.style.display = 'block';
@@ -613,27 +615,51 @@
     }
   }
 
+  function pushNav() {
+    state.navStack.push({
+      view: state.view,
+      noteId: state.note ? state.note.id : null,
+      collId: state.currentCollection ? state.currentCollection.id : null
+    });
+  }
+
   function goBack() {
-    if (state.view === 'note-detail') {
-      state.note = null;
-      state.noteDetail = null;
-      state.chatHistory = [];
-      if (state.prevView === 'coll-detail') {
-        setView('coll-detail');
-      } else {
-        setView('note-list');
-        checkNote();
-      }
-    } else if (state.view === 'coll-detail') {
+    if (state.navStack.length === 0) return;
+    var prev = state.navStack.pop();
+    state.note = null;
+    state.noteDetail = null;
+    state.chatHistory = [];
+    if (prev.view === 'coll-detail' && prev.collId) {
+      setView('coll-detail');
+      openCollectionDetail(prev.collId, true);
+    } else if (prev.view === 'coll-list') {
       setView('coll-list');
       loadCollections();
+    } else {
+      setView('note-list');
+      checkNote();
     }
   }
 
-  async function openCollectionDetail(collId) {
+  function refreshCurrent() {
+    els.refreshBtn.style.opacity = '0.5';
+    setTimeout(function () { els.refreshBtn.style.opacity = '1'; }, 500);
+    if (state.view === 'note-detail' && state.note && state.note.id) {
+      openNoteById(state.note.id, true);
+    } else if (state.view === 'coll-detail' && state.currentCollection && state.currentCollection.id) {
+      openCollectionDetail(state.currentCollection.id, true);
+    } else if (state.view === 'coll-list') {
+      loadCollections();
+    } else {
+      checkNote();
+    }
+  }
+
+  async function openCollectionDetail(collId, skipPush) {
     els.collDetailContainer.style.display = 'block';
     els.collListContainer.style.display = 'none';
     els.collEpisodeList.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-3)"><div class="spinner"></div></div>';
+    if (!skipPush) pushNav();
     setView('coll-detail');
     try {
       var resp = await sendBg({ type: 'getCollectionDetail', collId: collId });
@@ -641,9 +667,11 @@
         state.currentCollection = resp.data;
         renderCollectionDetail(resp.data);
       } else {
+        if (!skipPush) state.navStack.pop();
         els.collEpisodeList.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-3)">加载失败</div>';
       }
     } catch (e) {
+      if (!skipPush) state.navStack.pop();
       els.collEpisodeList.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-3)">加载失败：' + escapeHtml(e.message) + '</div>';
     }
   }
@@ -677,7 +705,16 @@
     els.collEpisodeList.querySelectorAll('.coll-episode-item:not(.disabled)').forEach(function (item) {
       item.addEventListener('click', function () {
         var noteId = parseInt(item.dataset.noteId, 10);
-        if (noteId) openNoteById(noteId);
+        var page = parseInt(item.dataset.page, 10);
+        if (noteId) {
+          if (state.currentCollection && state.currentCollection.bvid && page) {
+            var url = 'https://www.bilibili.com/video/' + state.currentCollection.bvid + '/?p=' + page;
+            chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+              if (tabs[0]) chrome.tabs.update(tabs[0].id, { url: url });
+            });
+          }
+          openNoteById(noteId);
+        }
       });
     });
   }
@@ -708,24 +745,27 @@
   }
 
   function switchTab(tabName) {
+    state.navStack = [];
+    state.note = null;
+    state.noteDetail = null;
+    state.currentCollection = null;
     els.tabs.forEach(function (t) { t.classList.toggle('active', t.dataset.tab === tabName); });
     els.tabPanes.forEach(function (p) { p.classList.toggle('active', p.id === 'tab-' + tabName); });
+    els.backBtn.style.display = 'none';
     if (tabName === 'collection') {
       setView('coll-list');
       loadCollections();
     }
     if (tabName === 'note') {
-      if (state.view === 'note-detail') {
-        els.backBtn.style.display = 'block';
-      } else {
-        els.backBtn.style.display = 'none';
-      }
+      setView('note-list');
+      checkNote();
     }
     if (tabName === 'quiz' && state.noteDetail) renderQuiz();
   }
 
   function initEvents() {
     els.backBtn.addEventListener('click', goBack);
+    els.refreshBtn.addEventListener('click', refreshCurrent);
 
     els.themeToggle.addEventListener('click', function () {
       state.settings.theme = state.settings.theme === 'dark' ? 'light' : 'dark';
