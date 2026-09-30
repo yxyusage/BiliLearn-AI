@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BiliLearn-AI 笔记</title>
+  <link rel="stylesheet" href="sidepanel.css">
+  <link rel="stylesheet" href="lib/katex.min.css">
+  <script src="lib/katex.min.js"></script>
+</head>
+<body>
+  <div class="app" id="app">
+    <header class="topbar">
+      <div class="topbar-left">
+        <span class="app-icon">📖</span>
+        <span class="app-title">BiliLearn</span>
+      </div>
+      <div class="topbar-right">
+        <button class="icon-btn" id="refreshBtn" title="刷新">🔄</button>
+        <button class="icon-btn" id="closeBtn" title="关闭">✕</button>
+      </div>
+    </header>
+
+    <div class="video-info" id="videoInfo">
+      <div class="vi-loading">读取视频信息...</div>
+    </div>
+
+    <nav class="tabs">
+      <button class="tab active" data-tab="note">📝 笔记</button>
+      <button class="tab" data-tab="collection">📚 合集</button>
+      <button class="tab" data-tab="settings">⚙️ 设置</button>
+    </nav>
+
+    <div class="tab-content">
+      <section class="tab-pane active" id="tab-note">
+        <div class="note-container" id="noteContainer">
+          <div class="state-loading" id="noteLoading">
+            <div class="spinner"></div>
+            <p>正在加载笔记...</p>
+          </div>
+
+          <div class="state-error" id="noteError" style="display:none">
+            <div class="error-icon">⚠️</div>
+            <p class="error-title" id="errorTitle"></p>
+            <p class="error-desc" id="errorDesc"></p>
+            <button class="btn btn-primary" id="errorRetry">重试</button>
+          </div>
+
+          <div class="state-no-note" id="noNote" style="display:none">
+            <div class="nn-icon">✨</div>
+            <p class="nn-title">还没有生成笔记</p>
+            <p class="nn-desc">AI 将自动提取字幕，生成带时间戳的结构化笔记</p>
+            <button class="btn btn-primary btn-block" id="generateBtn">
+              <span>⚡ 生成笔记</span>
+            </button>
+          </div>
+
+          <div class="state-generating" id="generating" style="display:none">
+            <div class="gen-header">
+              <div class="spinner spinner-sm"></div>
+              <span>AI 正在生成笔记...</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" id="genProgress"></div>
+            </div>
+            <p class="gen-tip">通常需要 1-5 分钟，请勿关闭侧边栏</p>
+          </div>
+
+          <div class="note-content" id="noteContent" style="display:none">
+            <div class="note-actions">
+              <button class="btn btn-outline btn-sm" id="regenBtn">🔄 重新生成</button>
+              <button class="btn btn-outline btn-sm" id="openFullBtn">↗ 打开完整页面</button>
+            </div>
+
+            <div class="note-summary" id="noteSummary"></div>
+
+            <div class="chapter-list" id="chapterList"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="tab-pane" id="tab-collection">
+        <div class="collection-container">
+          <div class="state-loading" id="collLoading">
+            <div class="spinner"></div>
+            <p>加载合集列表...</p>
+          </div>
+          <div class="collection-list" id="collectionList" style="display:none"></div>
+          <div class="state-empty" id="collEmpty" style="display:none">
+            <div class="empty-icon">📚</div>
+            <p>暂无合集任务</p>
+            <p class="empty-desc">在完整页面中创建合集任务后会显示在这里</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="tab-pane" id="tab-settings">
+        <div class="settings-container">
+          <div class="setting-group">
+            <div class="setting-title">显示设置</div>
+            <div class="setting-item">
+              <label>字体大小</label>
+              <div class="font-size-control">
+                <button class="font-btn" id="fontDec">A-</button>
+                <span class="font-value" id="fontValue">14px</span>
+                <button class="font-btn" id="fontInc">A+</button>
+              </div>
+            </div>
+            <div class="setting-item">
+              <label>主题</label>
+              <div class="theme-options">
+                <button class="theme-btn active" data-theme="light">☀️ 浅色</button>
+                <button class="theme-btn" data-theme="dark">🌙 深色</button>
+              </div>
+            </div>
+            <div class="setting-item">
+              <label>章节默认展开</label>
+              <label class="switch">
+                <input type="checkbox" id="expandChapters">
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="setting-group">
+            <div class="setting-title">后端设置</div>
+            <div class="setting-item">
+              <label>后端地址</label>
+              <input type="text" class="input" id="backendUrl" value="http://127.0.0.1:8000">
+            </div>
+            <div class="setting-item">
+              <label>后端状态</label>
+              <span class="status-badge" id="backendStatus">检测中...</span>
+            </div>
+            <button class="btn btn-outline btn-block" id="saveSettings">💾 保存设置</button>
+          </div>
+
+          <div class="setting-group">
+            <div class="setting-title">关于</div>
+            <div class="about-info">
+              <p>BiliLearn-AI 笔记助手 v2.0</p>
+              <p class="about-desc">在 B 站看视频时一键生成 AI 结构化笔记</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

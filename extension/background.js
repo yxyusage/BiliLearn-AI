@@ -1,5 +1,11 @@
 ﻿const API_BASE = 'http://127.0.0.1:8000/api';
 
+chrome.sidePanel
+  .setPanelBehavior({ openPanelOnActionClick: true })
+  .catch(function (err) {
+    console.error('Side panel behavior error:', err);
+  });
+
 async function apiRequest(path, options) {
   const url = API_BASE + path;
   const opts = Object.assign({
@@ -58,6 +64,10 @@ async function generateNote(bvid, page, title) {
   });
 }
 
+async function getCollections() {
+  return apiRequest('/collections?limit=50');
+}
+
 chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   (async function () {
     try {
@@ -79,6 +89,11 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         }
         case 'generateNote': {
           const result = await generateNote(msg.bvid, msg.page, msg.title);
+          sendResponse({ ok: true, data: result });
+          break;
+        }
+        case 'getCollections': {
+          const result = await getCollections();
           sendResponse({ ok: true, data: result });
           break;
         }
