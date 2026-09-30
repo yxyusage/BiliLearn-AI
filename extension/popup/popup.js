@@ -132,7 +132,11 @@
       return false;
     }
     var resp = await sendContent(tab.id, { type: 'getVideoInfo' });
-    if (!resp.ok || !resp.data || !resp.data.bvid) {
+    if (!resp.ok) {
+      showError('插件未注入到页面', '请刷新当前 B 站视频页面（按 F5），然后重新点击插件图标');
+      return false;
+    }
+    if (!resp.data || !resp.data.bvid) {
       showError('无法获取视频信息', '请确保页面已完全加载，或刷新页面后重试');
       return false;
     }
