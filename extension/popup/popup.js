@@ -131,12 +131,9 @@
       showView('notbilibili');
       return false;
     }
-    await sendBg({ type: 'ensureInjected', tabId: tab.id });
-    await new Promise(function (r) { setTimeout(r, 300); });
     var resp = await sendContent(tab.id, { type: 'getVideoInfo' });
     if (!resp.ok) {
-      var errMsg = resp.error || '未知错误';
-      showError('插件未注入到页面', '错误信息：' + errMsg + '\n请刷新当前 B 站视频页面（按 F5），然后重新点击插件图标');
+      showError('插件未获得网站权限', '请在 edge://extensions/ → BiliLearn-AI 详情 → 网站访问权限，选择「在所有网站上」，然后刷新 B 站页面重试');
       return false;
     }
     if (!resp.data || !resp.data.bvid) {

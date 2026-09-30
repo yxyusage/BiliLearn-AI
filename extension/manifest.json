@@ -3,7 +3,7 @@
   "name": "BiliLearn-AI 笔记助手",
   "version": "1.0.0",
   "description": "在 B 站看视频时一键生成 AI 结构化笔记，支持时间戳跳转、知识点浏览",
-  "permissions": ["activeTab", "storage", "scripting", "tabs"],
+  "permissions": ["storage"],
   "host_permissions": [
     "https://*.bilibili.com/*",
     "http://127.0.0.1:8000/*",
