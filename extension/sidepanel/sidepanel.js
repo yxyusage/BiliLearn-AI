@@ -40,6 +40,8 @@
     els.errorRetry = $('errorRetry');
     els.noNote = $('noNote');
     els.generateBtn = $('generateBtn');
+    els.recentNotes = $('recentNotes');
+    els.recentNotesList = $('recentNotesList');
     els.generating = $('generating');
     els.genProgress = $('genProgress');
     els.noteContent = $('noteContent');
@@ -202,6 +204,64 @@
     } else {
       state.note = null;
       showNoteState('none');
+      loadRecentNotes();
+    }
+  }
+
+  async function loadRecentNotes() {
+    try {
+      var resp = await sendBg({ type: 'getAllNotes' });
+      if (resp.ok && resp.data && Array.isArray(resp.data) && resp.data.length > 0) {
+        renderRecentNotes(resp.data.slice(0, 10));
+        els.recentNotes.style.display = 'block';
+      } else {
+        els.recentNotes.style.display = 'none';
+      }
+    } catch (e) {
+      els.recentNotes.style.display = 'none';
+    }
+  }
+
+  function renderRecentNotes(notes) {
+    var html = '';
+    notes.forEach(function (n) {
+      var date = n.created_at ? n.created_at.substring(0, 10) : '';
+      html += '<div class="rn-item" data-id="' + n.id + '">';
+      html += '<div class="rn-item-title">' + escapeHtml(n.title || '未命名') + '</div>';
+      html += '<div class="rn-item-meta"><span>' + escapeHtml(n.bvid || '') + '</span><span>P' + (n.page || 1) + '</span><span>' + date + '</span></div>';
+      html += '</div>';
+    });
+    els.recentNotesList.innerHTML = html;
+    els.recentNotesList.querySelectorAll('.rn-item').forEach(function (item) {
+      item.addEventListener('click', function () {
+        var noteId = parseInt(item.dataset.id, 10);
+        if (noteId) openNoteById(noteId);
+      });
+    });
+  }
+
+  async function openNoteById(noteId) {
+    showNoteState('loading');
+    try {
+      var resp = await sendBg({ type: 'getNoteDetail', noteId: noteId });
+      if (resp.ok && resp.data) {
+        state.note = resp.data;
+        state.noteDetail = resp.data;
+        if (resp.data.status === 'done') {
+          renderNote();
+          renderQuiz();
+        } else if (resp.data.status === 'processing') {
+          showNoteState('generating');
+          startPolling(noteId);
+        } else {
+          showNoteState('none');
+          loadRecentNotes();
+        }
+      } else {
+        showError('加载失败', resp.error || '无法加载笔记');
+      }
+    } catch (e) {
+      showError('加载失败', e.message);
     }
   }
 

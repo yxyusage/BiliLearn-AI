@@ -68,6 +68,10 @@ async function getCollections() {
   return apiRequest('/collections?limit=50');
 }
 
+async function getAllNotes() {
+  return apiRequest('/notes?limit=200');
+}
+
 async function chatNote(noteId, message, history) {
   return apiRequest('/notes/' + noteId + '/chat', {
     method: 'POST',
@@ -101,6 +105,11 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         }
         case 'getCollections': {
           const result = await getCollections();
+          sendResponse({ ok: true, data: result });
+          break;
+        }
+        case 'getAllNotes': {
+          const result = await getAllNotes();
           sendResponse({ ok: true, data: result });
           break;
         }

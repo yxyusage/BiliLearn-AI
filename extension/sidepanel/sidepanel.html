@@ -53,9 +53,13 @@
           </div>
           <div class="state-no-note" id="noNote" style="display:none">
             <div class="nn-icon">✨</div>
-            <p class="nn-title">还没有生成笔记</p>
+            <p class="nn-title">当前视频暂无笔记</p>
             <p class="nn-desc">AI 将自动提取字幕，生成带时间戳的结构化笔记</p>
             <button class="btn btn-primary btn-block" id="generateBtn"><span>⚡ 生成笔记</span></button>
+            <div class="recent-notes" id="recentNotes" style="display:none">
+              <div class="rn-title">📋 最近生成的笔记</div>
+              <div class="rn-list" id="recentNotesList"></div>
+            </div>
           </div>
           <div class="state-generating" id="generating" style="display:none">
             <div class="gen-header"><div class="spinner spinner-sm"></div><span>AI 正在生成笔记...</span></div>

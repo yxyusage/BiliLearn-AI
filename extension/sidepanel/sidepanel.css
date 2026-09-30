@@ -193,6 +193,17 @@ html, body {
 @keyframes progress-glow { 0%,100% { opacity: 1; } 50% { opacity: .7; } }
 .gen-tip { font-size: 11px; color: var(--text-3); }
 
+.recent-notes { margin-top: 16px; text-align: left; }
+.rn-title { font-size: 12px; font-weight: 600; color: var(--text-2); margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.rn-list { display: flex; flex-direction: column; gap: 6px; }
+.rn-item {
+  padding: 8px 10px; background: var(--bg-elev); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); cursor: pointer; transition: var(--transition);
+}
+.rn-item:hover { border-color: var(--primary); background: var(--primary-soft); }
+.rn-item-title { font-size: 12px; color: var(--text); font-weight: 500; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.rn-item-meta { font-size: 10px; color: var(--text-3); margin-top: 2px; display: flex; gap: 8px; }
+
 .note-actions { display: flex; gap: 8px; margin-bottom: 12px; }
 
 .note-summary {
