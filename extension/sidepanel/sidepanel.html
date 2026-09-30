@@ -12,8 +12,9 @@
   <div class="app" id="app">
     <header class="topbar">
       <div class="topbar-left">
+        <button class="icon-btn back-btn" id="backBtn" style="display:none" title="返回">←</button>
         <span class="app-icon">📖</span>
-        <span class="app-title">BiliLearn</span>
+        <span class="app-title" id="appTitle">BiliLearn</span>
       </div>
       <div class="topbar-right">
         <div class="palette-switcher" id="paletteSwitcher">
@@ -95,19 +96,20 @@
       <section class="tab-pane" id="tab-quiz">
         <div class="quiz-container">
           <div class="state-loading" id="quizLoading" style="display:none">
-            <div class="spinner"></div><p>加载题目...</p>
+            <div class="spinner"></div><p>生成题目中...</p>
           </div>
           <div class="state-empty" id="quizEmpty" style="display:none">
             <div class="empty-icon">✏️</div>
             <p>暂无自测题</p>
-            <p class="empty-desc">笔记生成后会自动包含自测题</p>
+            <p class="empty-desc">点击下方按钮，AI 基于笔记生成自测题</p>
+            <button class="btn btn-primary" id="generateQuizBtn" style="margin-top:12px"><span>🎯 生成自测题</span></button>
           </div>
           <div class="quiz-list" id="quizList" style="display:none"></div>
         </div>
       </section>
 
       <section class="tab-pane" id="tab-collection">
-        <div class="collection-container">
+        <div class="collection-container" id="collListContainer">
           <div class="state-loading" id="collLoading">
             <div class="spinner"></div><p>加载合集列表...</p>
           </div>
@@ -116,6 +118,14 @@
             <div class="empty-icon">📚</div><p>暂无合集任务</p>
             <p class="empty-desc">在完整页面中创建合集任务后会显示在这里</p>
           </div>
+        </div>
+        <div class="collection-detail" id="collDetailContainer" style="display:none">
+          <div class="coll-detail-header">
+            <div class="coll-detail-title" id="collDetailTitle"></div>
+            <div class="coll-detail-meta" id="collDetailMeta"></div>
+          </div>
+          <div class="coll-detail-progress" id="collDetailProgress"></div>
+          <div class="coll-episode-list" id="collEpisodeList"></div>
         </div>
       </section>
     </div>

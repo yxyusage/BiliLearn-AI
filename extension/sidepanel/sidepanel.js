@@ -10,6 +10,9 @@
     polling: false,
     pollTimer: null,
     chatHistory: [],
+    view: 'note-list',
+    prevView: null,
+    currentCollection: null,
     settings: {
       fontSize: 14,
       theme: 'light',
@@ -24,6 +27,8 @@
   function $(id) { return document.getElementById(id); }
 
   function initEls() {
+    els.backBtn = $('backBtn');
+    els.appTitle = $('appTitle');
     els.videoInfo = $('videoInfo');
     els.themeToggle = $('themeToggle');
     els.openFullBtn = $('openFullBtn');
@@ -54,9 +59,16 @@
     els.quizLoading = $('quizLoading');
     els.quizEmpty = $('quizEmpty');
     els.quizList = $('quizList');
+    els.generateQuizBtn = $('generateQuizBtn');
     els.collLoading = $('collLoading');
     els.collectionList = $('collectionList');
     els.collEmpty = $('collEmpty');
+    els.collListContainer = $('collListContainer');
+    els.collDetailContainer = $('collDetailContainer');
+    els.collDetailTitle = $('collDetailTitle');
+    els.collDetailMeta = $('collDetailMeta');
+    els.collDetailProgress = $('collDetailProgress');
+    els.collEpisodeList = $('collEpisodeList');
     els.fontDec = $('fontDec');
     els.fontInc = $('fontInc');
     els.fontValue = $('fontValue');
@@ -248,9 +260,11 @@
         state.note = resp.data;
         state.noteDetail = resp.data;
         if (resp.data.status === 'done') {
+          setView('note-detail');
           renderNote();
           renderQuiz();
         } else if (resp.data.status === 'processing') {
+          setView('note-detail');
           showNoteState('generating');
           startPolling(noteId);
         } else {
@@ -572,16 +586,147 @@
     });
     els.collectionList.innerHTML = html;
     els.collectionList.style.display = 'block';
+    els.collectionList.querySelectorAll('.collection-item').forEach(function (item) {
+      item.addEventListener('click', function () {
+        var id = parseInt(item.dataset.id, 10);
+        if (id) openCollectionDetail(id);
+      });
+    });
+  }
+
+  function setView(view) {
+    state.prevView = state.view;
+    state.view = view;
+    els.backBtn.style.display = (view === 'note-detail' || view === 'coll-detail') ? 'block' : 'none';
+    if (view === 'coll-detail') {
+      els.collListContainer.style.display = 'none';
+      els.collDetailContainer.style.display = 'block';
+      els.appTitle.textContent = '合集详情';
+    } else if (view === 'coll-list') {
+      els.collListContainer.style.display = 'block';
+      els.collDetailContainer.style.display = 'none';
+      els.appTitle.textContent = 'BiliLearn';
+    } else if (view === 'note-detail') {
+      els.appTitle.textContent = '笔记详情';
+    } else {
+      els.appTitle.textContent = 'BiliLearn';
+    }
+  }
+
+  function goBack() {
+    if (state.view === 'note-detail') {
+      state.note = null;
+      state.noteDetail = null;
+      state.chatHistory = [];
+      if (state.prevView === 'coll-detail') {
+        setView('coll-detail');
+      } else {
+        setView('note-list');
+        checkNote();
+      }
+    } else if (state.view === 'coll-detail') {
+      setView('coll-list');
+      loadCollections();
+    }
+  }
+
+  async function openCollectionDetail(collId) {
+    els.collDetailContainer.style.display = 'block';
+    els.collListContainer.style.display = 'none';
+    els.collEpisodeList.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-3)"><div class="spinner"></div></div>';
+    setView('coll-detail');
+    try {
+      var resp = await sendBg({ type: 'getCollectionDetail', collId: collId });
+      if (resp.ok && resp.data) {
+        state.currentCollection = resp.data;
+        renderCollectionDetail(resp.data);
+      } else {
+        els.collEpisodeList.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-3)">加载失败</div>';
+      }
+    } catch (e) {
+      els.collEpisodeList.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-3)">加载失败：' + escapeHtml(e.message) + '</div>';
+    }
+  }
+
+  function renderCollectionDetail(coll) {
+    var total = coll.total || 0;
+    var done = coll.done_count || 0;
+    var pct = total > 0 ? Math.round(done / total * 100) : 0;
+    els.collDetailTitle.textContent = coll.title || '未命名合集';
+    els.collDetailMeta.innerHTML = '<span>' + done + '/' + total + ' 集</span><span>' + pct + '%</span><span>' + (coll.status === 'done' ? '已完成' : coll.status === 'processing' ? '进行中' : '部分完成') + '</span>';
+    els.collDetailProgress.innerHTML = '<div class="coll-detail-progress-fill" style="width:' + pct + '%"></div>';
+
+    var results = coll.results || [];
+    if (results.length === 0) {
+      els.collEpisodeList.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-3)">暂无视频数据</div>';
+      return;
+    }
+    var html = '';
+    results.forEach(function (r, i) {
+      var statusText = r.status === 'done' ? '✓ 已完成' : r.status === 'failed' ? '✗ 失败' : '待处理';
+      var statusClass = r.status === 'done' ? 'done' : r.status === 'failed' ? 'failed' : 'pending';
+      var clickable = r.status === 'done' && r.note_id ? '' : 'disabled';
+      html += '<div class="coll-episode-item ' + clickable + '" data-note-id="' + (r.note_id || '') + '" data-page="' + (r.page || '') + '">';
+      html += '<span class="coll-episode-num">P' + (r.page || (i + 1)) + '</span>';
+      html += '<div class="coll-episode-info"><div class="coll-episode-title">' + escapeHtml(r.title || ('第' + (i + 1) + '集')) + '</div>';
+      html += '<div class="coll-episode-status ' + statusClass + '">' + statusText + '</div></div>';
+      if (r.status === 'done' && r.note_id) html += '<span class="coll-episode-arrow">›</span>';
+      html += '</div>';
+    });
+    els.collEpisodeList.innerHTML = html;
+    els.collEpisodeList.querySelectorAll('.coll-episode-item:not(.disabled)').forEach(function (item) {
+      item.addEventListener('click', function () {
+        var noteId = parseInt(item.dataset.noteId, 10);
+        if (noteId) openNoteById(noteId);
+      });
+    });
+  }
+
+  async function generateQuiz() {
+    if (!state.note || !state.note.id) return;
+    els.generateQuizBtn.disabled = true;
+    els.generateQuizBtn.innerHTML = '<span>⏳ 生成中...</span>';
+    els.quizEmpty.style.display = 'none';
+    els.quizLoading.style.display = 'block';
+    try {
+      var resp = await sendBg({ type: 'generateQuiz', noteId: state.note.id });
+      if (resp.ok && resp.data) {
+        if (state.noteDetail) state.noteDetail.quizzes = resp.data;
+        renderQuiz();
+      } else {
+        els.quizLoading.style.display = 'none';
+        els.quizEmpty.style.display = 'block';
+        els.quizEmpty.querySelector('.empty-desc').textContent = resp.error || '生成失败，请稍后重试';
+      }
+    } catch (e) {
+      els.quizLoading.style.display = 'none';
+      els.quizEmpty.style.display = 'block';
+      els.quizEmpty.querySelector('.empty-desc').textContent = '生成失败：' + e.message;
+    }
+    els.generateQuizBtn.disabled = false;
+    els.generateQuizBtn.innerHTML = '<span>🎯 生成自测题</span>';
   }
 
   function switchTab(tabName) {
     els.tabs.forEach(function (t) { t.classList.toggle('active', t.dataset.tab === tabName); });
     els.tabPanes.forEach(function (p) { p.classList.toggle('active', p.id === 'tab-' + tabName); });
-    if (tabName === 'collection') loadCollections();
+    if (tabName === 'collection') {
+      setView('coll-list');
+      loadCollections();
+    }
+    if (tabName === 'note') {
+      if (state.view === 'note-detail') {
+        els.backBtn.style.display = 'block';
+      } else {
+        els.backBtn.style.display = 'none';
+      }
+    }
     if (tabName === 'quiz' && state.noteDetail) renderQuiz();
   }
 
   function initEvents() {
+    els.backBtn.addEventListener('click', goBack);
+
     els.themeToggle.addEventListener('click', function () {
       state.settings.theme = state.settings.theme === 'dark' ? 'light' : 'dark';
       applySettings(); saveSettings();
@@ -613,6 +758,7 @@
     els.errorRetry.addEventListener('click', init);
     els.generateBtn.addEventListener('click', generateNote);
     els.regenBtn.addEventListener('click', function () { if (confirm('确定要重新生成笔记吗？')) generateNote(); });
+    els.generateQuizBtn.addEventListener('click', generateQuiz);
 
     els.chatSend.addEventListener('click', sendChat);
     els.chatInput.addEventListener('keydown', function (e) {

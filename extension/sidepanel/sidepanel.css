@@ -89,7 +89,9 @@ html, body {
   color: #fff; flex-shrink: 0;
   transition: background .3s ease;
 }
-.topbar-left { display: flex; align-items: center; gap: 8px; }
+.topbar-left { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.back-btn { font-size: 16px; padding: 4px 6px; margin-right: 2px; flex-shrink: 0; }
+.back-btn:hover { background: rgba(255,255,255,.15); }
 .app-icon { font-size: 18px; }
 .app-title { font-size: 15px; font-weight: 700; }
 .topbar-right { display: flex; align-items: center; gap: 4px; }
@@ -438,3 +440,28 @@ input:checked + .slider:before { transform: translateX(16px); }
   background: var(--border); border-radius: 3px;
 }
 .tab-pane::-webkit-scrollbar-thumb:hover, .chat-messages::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+
+.collection-detail { padding: 12px; }
+.coll-detail-header { margin-bottom: 12px; }
+.coll-detail-title { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.coll-detail-meta { font-size: 11px; color: var(--text-3); display: flex; gap: 10px; }
+.coll-detail-progress { height: 6px; background: var(--bg-soft); border-radius: 3px; margin-bottom: 14px; overflow: hidden; }
+.coll-detail-progress-fill { height: 100%; background: var(--primary); border-radius: 3px; transition: width .3s; }
+.coll-episode-list { display: flex; flex-direction: column; gap: 6px; }
+.coll-episode-item {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  cursor: pointer; transition: var(--transition);
+}
+.coll-episode-item:hover { border-color: var(--primary); background: var(--primary-soft); }
+.coll-episode-item.disabled { opacity: .5; cursor: not-allowed; }
+.coll-episode-num { font-size: 11px; font-weight: 700; color: var(--text-3); min-width: 32px; text-align: center; }
+.coll-episode-info { flex: 1; min-width: 0; }
+.coll-episode-title { font-size: 12px; color: var(--text); display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.coll-episode-status { font-size: 10px; margin-top: 2px; }
+.coll-episode-status.done { color: var(--success); }
+.coll-episode-status.failed { color: var(--danger); }
+.coll-episode-status.pending { color: var(--text-3); }
+.coll-episode-arrow { font-size: 12px; color: var(--text-3); flex-shrink: 0; }
+
+.quiz-gen-btn { margin-top: 12px; }

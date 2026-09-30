@@ -72,6 +72,17 @@ async function getAllNotes() {
   return apiRequest('/notes?limit=200');
 }
 
+async function getCollectionDetail(collId) {
+  return apiRequest('/collections/' + collId);
+}
+
+async function generateQuiz(noteId) {
+  return apiRequest('/quiz/generate', {
+    method: 'POST',
+    body: JSON.stringify({ note_id: noteId })
+  });
+}
+
 async function chatNote(noteId, message, history) {
   return apiRequest('/notes/' + noteId + '/chat', {
     method: 'POST',
@@ -115,6 +126,16 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         }
         case 'chatNote': {
           const result = await chatNote(msg.noteId, msg.message, msg.history);
+          sendResponse({ ok: true, data: result });
+          break;
+        }
+        case 'getCollectionDetail': {
+          const result = await getCollectionDetail(msg.collId);
+          sendResponse({ ok: true, data: result });
+          break;
+        }
+        case 'generateQuiz': {
+          const result = await generateQuiz(msg.noteId);
           sendResponse({ ok: true, data: result });
           break;
         }
