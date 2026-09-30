@@ -133,7 +133,8 @@
     }
     var resp = await sendContent(tab.id, { type: 'getVideoInfo' });
     if (!resp.ok) {
-      showError('插件未注入到页面', '请刷新当前 B 站视频页面（按 F5），然后重新点击插件图标');
+      var errMsg = resp.error || '未知错误';
+      showError('插件未注入到页面', '错误信息：' + errMsg + '\n请刷新当前 B 站视频页面（按 F5），然后重新点击插件图标');
       return false;
     }
     if (!resp.data || !resp.data.bvid) {
