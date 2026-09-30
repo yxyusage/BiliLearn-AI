@@ -9,9 +9,11 @@
     backendOnline: false,
     polling: false,
     pollTimer: null,
+    chatHistory: [],
     settings: {
       fontSize: 14,
       theme: 'light',
+      palette: 'paper',
       expandChapters: false,
       backendUrl: 'http://127.0.0.1:8000'
     }
@@ -23,8 +25,12 @@
 
   function initEls() {
     els.videoInfo = $('videoInfo');
-    els.refreshBtn = $('refreshBtn');
-    els.closeBtn = $('closeBtn');
+    els.themeToggle = $('themeToggle');
+    els.openFullBtn = $('openFullBtn');
+    els.settingsBtn = $('settingsBtn');
+    els.settingsOverlay = $('settingsOverlay');
+    els.settingsClose = $('settingsClose');
+    els.paletteDots = document.querySelectorAll('.palette-dot');
     els.tabs = document.querySelectorAll('.tab');
     els.tabPanes = document.querySelectorAll('.tab-pane');
     els.noteLoading = $('noteLoading');
@@ -38,16 +44,20 @@
     els.genProgress = $('genProgress');
     els.noteContent = $('noteContent');
     els.regenBtn = $('regenBtn');
-    els.openFullBtn = $('openFullBtn');
     els.noteSummary = $('noteSummary');
     els.chapterList = $('chapterList');
+    els.chatMessages = $('chatMessages');
+    els.chatInput = $('chatInput');
+    els.chatSend = $('chatSend');
+    els.quizLoading = $('quizLoading');
+    els.quizEmpty = $('quizEmpty');
+    els.quizList = $('quizList');
     els.collLoading = $('collLoading');
     els.collectionList = $('collectionList');
     els.collEmpty = $('collEmpty');
     els.fontDec = $('fontDec');
     els.fontInc = $('fontInc');
     els.fontValue = $('fontValue');
-    els.themeBtns = document.querySelectorAll('.theme-btn');
     els.expandChapters = $('expandChapters');
     els.backendUrl = $('backendUrl');
     els.backendStatus = $('backendStatus');
@@ -56,9 +66,9 @@
 
   function loadSettings() {
     try {
-      var saved = chrome.storage.local.get(['bililearn_settings'], function (result) {
-        if (result.bililearn_settings) {
-          state.settings = Object.assign(state.settings, result.bililearn_settings);
+      chrome.storage.local.get(['bililearn_ext_settings'], function (result) {
+        if (result.bililearn_ext_settings) {
+          state.settings = Object.assign(state.settings, result.bililearn_ext_settings);
         }
         applySettings();
       });
@@ -68,20 +78,21 @@
   }
 
   function saveSettings() {
-    try {
-      chrome.storage.local.set({ bililearn_settings: state.settings });
-    } catch (e) {}
+    try { chrome.storage.local.set({ bililearn_ext_settings: state.settings }); } catch (e) {}
   }
 
   function applySettings() {
     document.documentElement.style.setProperty('--font-size', state.settings.fontSize + 'px');
     els.fontValue.textContent = state.settings.fontSize + 'px';
     document.documentElement.setAttribute('data-theme', state.settings.theme);
-    els.themeBtns.forEach(function (btn) {
-      btn.classList.toggle('active', btn.dataset.theme === state.settings.theme);
+    document.documentElement.setAttribute('data-palette', state.settings.palette);
+    els.themeToggle.textContent = state.settings.theme === 'dark' ? '☀️' : '🌙';
+    els.paletteDots.forEach(function (dot) {
+      dot.classList.toggle('active', dot.dataset.palette === state.settings.palette);
     });
     els.expandChapters.checked = state.settings.expandChapters;
     els.backendUrl.value = state.settings.backendUrl;
+    if (state.noteDetail) renderNote();
   }
 
   function sendBg(msg) {
@@ -116,11 +127,8 @@
     if (!ts) return null;
     if (typeof ts === 'number') return ts;
     var parts = String(ts).split(':');
-    if (parts.length === 3) {
-      return parseInt(parts[0], 10) * 3600 + parseInt(parts[1], 10) * 60 + parseFloat(parts[2]);
-    } else if (parts.length === 2) {
-      return parseInt(parts[0], 10) * 60 + parseFloat(parts[1]);
-    }
+    if (parts.length === 3) return parseInt(parts[0], 10) * 3600 + parseInt(parts[1], 10) * 60 + parseFloat(parts[2]);
+    if (parts.length === 2) return parseInt(parts[0], 10) * 60 + parseFloat(parts[1]);
     return null;
   }
 
@@ -159,8 +167,7 @@
       els.videoInfo.innerHTML = '<div class="vi-loading">请在 B 站视频页面使用</div>';
       return false;
     }
-    var isBilibili = /bilibili\.com\/video\//.test(tab.url);
-    if (!isBilibili) {
+    if (!/bilibili\.com\/video\//.test(tab.url)) {
       els.videoInfo.innerHTML = '<div class="vi-loading">请在 B 站视频页面使用</div>';
       return false;
     }
@@ -172,8 +179,7 @@
     state.videoInfo = resp.data;
     els.videoInfo.innerHTML =
       '<div class="vi-title">' + escapeHtml(resp.data.title || '未知标题') + '</div>' +
-      '<div class="vi-meta"><span class="vi-bvid">' + escapeHtml(resp.data.bvid) + '</span>' +
-      '<span>P' + (resp.data.page || 1) + '</span></div>';
+      '<div class="vi-meta"><span class="vi-bvid">' + escapeHtml(resp.data.bvid) + '</span><span>P' + (resp.data.page || 1) + '</span></div>';
     return true;
   }
 
@@ -186,6 +192,7 @@
       if (resp.data.status === 'done') {
         await loadNoteDetail(resp.data.id);
         renderNote();
+        renderQuiz();
       } else if (resp.data.status === 'processing') {
         showNoteState('generating');
         startPolling(resp.data.id);
@@ -200,23 +207,19 @@
 
   async function loadNoteDetail(noteId) {
     var resp = await sendBg({ type: 'getNoteDetail', noteId: noteId });
-    if (resp.ok && resp.data) {
-      state.noteDetail = resp.data;
-    }
+    if (resp.ok && resp.data) state.noteDetail = resp.data;
   }
 
   function renderNote() {
     showNoteState('content');
     var detail = state.noteDetail || state.note;
     var noteData = detail.note || {};
-
-    var summary = noteData.summary || detail.summary || '';
-    els.noteSummary.textContent = summary || '暂无摘要';
+    els.noteSummary.textContent = noteData.summary || detail.summary || '暂无摘要';
 
     var chapters = noteData.chapters || [];
     var html = '';
     if (chapters.length === 0) {
-      html = '<div style="text-align:center;color:var(--text-muted);padding:20px;font-size:12px">暂无章节内容</div>';
+      html = '<div style="text-align:center;color:var(--text-3);padding:16px;font-size:12px">暂无章节内容</div>';
     } else {
       chapters.forEach(function (ch, i) {
         var time = parseTimestamp(ch.time_stamp);
@@ -225,14 +228,9 @@
         html += '<div class="chapter-header">';
         html += '<span class="chapter-no">' + (i + 1) + '</span>';
         html += '<span class="chapter-title">' + escapeHtml(ch.title || '未命名章节') + '</span>';
-        if (time !== null) {
-          html += '<span class="chapter-time" data-time="' + time + '">' + escapeHtml(String(ch.time_stamp)) + '</span>';
-        }
-        html += '<span class="chapter-toggle">▶</span>';
-        html += '</div>';
-        html += '<div class="chapter-body">';
-        html += renderSections(ch.sections || []);
-        html += '</div></div>';
+        if (time !== null) html += '<span class="chapter-time" data-time="' + time + '">' + escapeHtml(String(ch.time_stamp)) + '</span>';
+        html += '<span class="chapter-toggle">▶</span></div>';
+        html += '<div class="chapter-body">' + renderSections(ch.sections || []) + '</div></div>';
       });
     }
     els.chapterList.innerHTML = html;
@@ -243,89 +241,40 @@
         header.parentElement.classList.toggle('expanded');
       });
     });
-
     els.chapterList.querySelectorAll('.chapter-time').forEach(function (timeEl) {
       timeEl.addEventListener('click', function (e) {
         e.stopPropagation();
         var time = parseFloat(timeEl.dataset.time);
-        if (!isNaN(time) && state.tab) {
-          sendContent(state.tab.id, { type: 'seekTo', seconds: time });
-        }
+        if (!isNaN(time) && state.tab) sendContent(state.tab.id, { type: 'seekTo', seconds: time });
       });
     });
-
     renderMathInElement(els.chapterList);
-  }
-
-  function renderMathInElement(el) {
-    if (typeof katex === 'undefined') return;
-    el.querySelectorAll('.formula-display').forEach(function (node) {
-      try {
-        katex.render(node.dataset.latex || '', node, {
-          displayMode: true,
-          throwOnError: false,
-          output: 'html'
-        });
-      } catch (e) {
-        node.textContent = node.dataset.latex || '';
-      }
-    });
-    el.querySelectorAll('.formula-inline').forEach(function (node) {
-      try {
-        katex.render(node.dataset.latex || '', node, {
-          displayMode: false,
-          throwOnError: false,
-          output: 'html'
-        });
-      } catch (e) {
-        node.textContent = '$' + (node.dataset.latex || '') + '$';
-      }
-    });
   }
 
   function renderSections(sections) {
     var html = '';
     sections.forEach(function (sec) {
-      if (sec.heading) {
-        html += '<div class="section-heading">' + escapeHtml(sec.heading) + '</div>';
-      }
-      var blocks = sec.blocks || [];
-      blocks.forEach(function (block) {
+      if (sec.heading) html += '<div class="section-heading">' + escapeHtml(sec.heading) + '</div>';
+      (sec.blocks || []).forEach(function (block) {
         switch (block.type) {
-          case 'text':
-            html += '<div class="section-text">' + renderInline(block.content || '') + '</div>';
-            break;
+          case 'text': html += '<div class="section-text">' + renderInline(block.content || '') + '</div>'; break;
           case 'formula':
-            var fcontent = (block.content || '').trim().replace(/^\$+/, '').replace(/\$+$/, '');
-            html += '<div class="section-formula"><span class="formula-display" data-latex="' + escapeHtml(fcontent) + '"></span></div>';
+            var fc = (block.content || '').trim().replace(/^\$+/, '').replace(/\$+$/, '');
+            html += '<div class="section-formula"><span class="formula-display" data-latex="' + escapeHtml(fc) + '"></span></div>';
             break;
-          case 'code':
-            html += '<pre class="section-code"><code>' + escapeHtml(block.content || '') + '</code></pre>';
-            break;
+          case 'code': html += '<pre class="section-code"><code>' + escapeHtml(block.content || '') + '</code></pre>'; break;
           case 'list':
             var tag = block.ordered ? 'ol' : 'ul';
             html += '<' + tag + ' class="section-list">';
-            (block.items || []).forEach(function (item) {
-              html += '<li>' + renderInline(item) + '</li>';
-            });
-            html += '</' + tag + '>';
-            break;
+            (block.items || []).forEach(function (item) { html += '<li>' + renderInline(item) + '</li>'; });
+            html += '</' + tag + '>'; break;
           case 'steps':
             html += '<div class="section-steps">';
-            (block.items || []).forEach(function (step) {
-              html += '<div class="step-item">' + renderInline(step) + '</div>';
-            });
-            html += '</div>';
-            break;
-          case 'table':
-            html += renderTable(block);
-            break;
-          case 'quote':
-            html += '<div class="section-quote">' + renderInline(block.content || '') + '</div>';
-            break;
-          case 'heading':
-            html += '<div class="section-heading">' + escapeHtml(block.content || '') + '</div>';
-            break;
+            (block.items || []).forEach(function (step) { html += '<div class="step-item">' + renderInline(step) + '</div>'; });
+            html += '</div>'; break;
+          case 'table': html += renderTable(block); break;
+          case 'quote': html += '<div class="section-quote">' + renderInline(block.content || '') + '</div>'; break;
+          case 'heading': html += '<div class="section-heading">' + escapeHtml(block.content || '') + '</div>'; break;
         }
       });
     });
@@ -345,19 +294,26 @@
     var headers = block.headers || [];
     var rows = block.rows || [];
     var html = '<div style="overflow-x:auto"><table class="section-table"><thead><tr>';
-    headers.forEach(function (h) {
-      html += '<th>' + escapeHtml(h) + '</th>';
-    });
+    headers.forEach(function (h) { html += '<th>' + escapeHtml(h) + '</th>'; });
     html += '</tr></thead><tbody>';
     rows.forEach(function (row) {
       html += '<tr>';
-      row.forEach(function (cell) {
-        html += '<td>' + escapeHtml(cell) + '</td>';
-      });
+      row.forEach(function (cell) { html += '<td>' + escapeHtml(cell) + '</td>'; });
       html += '</tr>';
     });
-    html += '</tbody></table></div>';
-    return html;
+    return html + '</tbody></table></div>';
+  }
+
+  function renderMathInElement(el) {
+    if (typeof katex === 'undefined') return;
+    el.querySelectorAll('.formula-display').forEach(function (node) {
+      try { katex.render(node.dataset.latex || '', node, { displayMode: true, throwOnError: false, output: 'html' }); }
+      catch (e) { node.textContent = node.dataset.latex || ''; }
+    });
+    el.querySelectorAll('.formula-inline').forEach(function (node) {
+      try { katex.render(node.dataset.latex || '', node, { displayMode: false, throwOnError: false, output: 'html' }); }
+      catch (e) { node.textContent = '$' + (node.dataset.latex || '') + '$'; }
+    });
   }
 
   async function generateNote() {
@@ -365,19 +321,12 @@
     els.generateBtn.disabled = true;
     els.generateBtn.innerHTML = '<span>⏳ 提交中...</span>';
     try {
-      var resp = await sendBg({
-        type: 'generateNote',
-        bvid: state.videoInfo.bvid,
-        page: state.videoInfo.page,
-        title: state.videoInfo.title
-      });
+      var resp = await sendBg({ type: 'generateNote', bvid: state.videoInfo.bvid, page: state.videoInfo.page, title: state.videoInfo.title });
       if (resp.ok && resp.data) {
         state.note = resp.data;
         showNoteState('generating');
         startPolling(resp.data.id);
-      } else {
-        throw new Error(resp.error || '生成失败');
-      }
+      } else throw new Error(resp.error || '生成失败');
     } catch (e) {
       els.generateBtn.disabled = false;
       els.generateBtn.innerHTML = '<span>⚡ 生成笔记</span>';
@@ -393,7 +342,6 @@
       progress = Math.min(progress + Math.random() * 8, 90);
       els.genProgress.style.width = progress + '%';
     }, 800);
-
     function poll() {
       if (!state.polling) return;
       sendBg({ type: 'getNoteDetail', noteId: noteId }).then(function (resp) {
@@ -402,14 +350,13 @@
           state.note = resp.data;
           state.noteDetail = resp.data;
           if (resp.data.status === 'done') {
-            state.polling = false;
-            clearInterval(progTimer);
+            state.polling = false; clearInterval(progTimer);
             els.genProgress.style.width = '100%';
-            setTimeout(function () { renderNote(); }, 300);
+            setTimeout(function () { renderNote(); renderQuiz(); }, 300);
             return;
-          } else if (resp.data.status === 'failed') {
-            state.polling = false;
-            clearInterval(progTimer);
+          }
+          if (resp.data.status === 'failed') {
+            state.polling = false; clearInterval(progTimer);
             showNoteState('none');
             els.generateBtn.disabled = false;
             els.generateBtn.innerHTML = '<span>⚡ 重新生成</span>';
@@ -417,21 +364,122 @@
           }
         }
         state.pollTimer = setTimeout(poll, 3000);
-      }).catch(function () {
-        if (state.polling) {
-          state.pollTimer = setTimeout(poll, 5000);
-        }
-      });
+      }).catch(function () { if (state.polling) state.pollTimer = setTimeout(poll, 5000); });
     }
     poll();
   }
 
   function stopPolling() {
     state.polling = false;
-    if (state.pollTimer) {
-      clearTimeout(state.pollTimer);
-      state.pollTimer = null;
+    if (state.pollTimer) { clearTimeout(state.pollTimer); state.pollTimer = null; }
+  }
+
+  function renderQuiz() {
+    var detail = state.noteDetail || state.note;
+    var quizzes = (detail && detail.quizzes) || {};
+    var questions = quizzes.questions || [];
+    if (questions.length === 0) {
+      els.quizEmpty.style.display = 'block';
+      els.quizList.style.display = 'none';
+      return;
     }
+    els.quizEmpty.style.display = 'none';
+    els.quizList.style.display = 'block';
+    var typeMap = { single: '单选', judge: '判断', fill: '填空', calc: '计算' };
+    var diffMap = { basic: '基础', medium: '中档', advanced: '拔高' };
+    var html = '';
+    questions.forEach(function (q, i) {
+      html += '<div class="quiz-item" data-q="' + i + '">';
+      html += '<div class="quiz-header"><span class="quiz-no">' + (i + 1) + '</span>';
+      html += '<span class="quiz-type">' + (typeMap[q.type] || q.type) + '</span>';
+      html += '<span class="quiz-diff ' + (q.difficulty || 'basic') + '">' + (diffMap[q.difficulty || 'basic'] || '') + '</span></div>';
+      html += '<div class="quiz-stem">' + renderInline(q.stem || '') + '</div>';
+      if (q.type === 'single' && q.options && q.options.length) {
+        html += '<div class="quiz-options">';
+        q.options.forEach(function (opt, oi) {
+          html += '<div class="quiz-option" data-opt="' + oi + '">' + String.fromCharCode(65 + oi) + '. ' + escapeHtml(opt) + '</div>';
+        });
+        html += '</div>';
+      } else if (q.type === 'judge') {
+        html += '<div class="quiz-options">';
+        html += '<div class="quiz-option" data-opt="true">✓ 正确</div>';
+        html += '<div class="quiz-option" data-opt="false">✗ 错误</div>';
+        html += '</div>';
+      } else if (q.type === 'fill') {
+        html += '<input class="quiz-fill-input" type="text" placeholder="输入答案...">';
+      } else {
+        html += '<textarea class="quiz-fill-input" rows="2" placeholder="输入计算过程和答案..."></textarea>';
+      }
+      html += '<div class="quiz-actions"><button class="btn btn-outline btn-sm quiz-check">查看答案</button></div>';
+      html += '<div class="quiz-answer"><strong>答案：</strong>' + escapeHtml(q.answer || '') + (q.explanation ? '<br><strong>解析：</strong>' + renderInline(q.explanation) : '') + '</div>';
+      html += '</div>';
+    });
+    els.quizList.innerHTML = html;
+    renderMathInElement(els.quizList);
+
+    els.quizList.querySelectorAll('.quiz-option').forEach(function (opt) {
+      opt.addEventListener('click', function () {
+        var item = opt.closest('.quiz-item');
+        item.querySelectorAll('.quiz-option').forEach(function (o) { o.classList.remove('selected'); });
+        opt.classList.add('selected');
+      });
+    });
+    els.quizList.querySelectorAll('.quiz-check').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var item = btn.closest('.quiz-item');
+        var answer = item.querySelector('.quiz-answer');
+        answer.classList.toggle('show');
+        btn.textContent = answer.classList.contains('show') ? '隐藏答案' : '查看答案';
+      });
+    });
+  }
+
+  function appendChatMsg(role, content) {
+    var empty = els.chatMessages.querySelector('.chat-empty');
+    if (empty) empty.remove();
+    var div = document.createElement('div');
+    div.className = 'msg msg-' + role;
+    var avatar = role === 'user' ? '🧑' : '🤖';
+    div.innerHTML = '<div class="msg-avatar">' + avatar + '</div><div class="msg-bubble">' + content + '</div>';
+    els.chatMessages.appendChild(div);
+    els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
+    renderMathInElement(div);
+  }
+
+  async function sendChat() {
+    var text = els.chatInput.value.trim();
+    if (!text || !state.note) return;
+    appendChatMsg('user', escapeHtml(text).replace(/\n/g, '<br>'));
+    els.chatInput.value = '';
+    els.chatSend.disabled = true;
+    els.chatSend.textContent = '...';
+    try {
+      var history = state.chatHistory.slice(-10);
+      var resp = await sendBg({ type: 'chatNote', noteId: state.note.id, message: text, history: history });
+      if (resp.ok && resp.data && resp.data.reply) {
+        var reply = resp.data.reply;
+        state.chatHistory.push({ role: 'user', content: text });
+        state.chatHistory.push({ role: 'assistant', content: reply });
+        appendChatMsg('ai', formatChatReply(reply));
+      } else {
+        appendChatMsg('ai', '⚠️ ' + (resp.error || 'AI 答疑失败'));
+      }
+    } catch (e) {
+      appendChatMsg('ai', '⚠️ ' + e.message);
+    }
+    els.chatSend.disabled = false;
+    els.chatSend.textContent = '发送';
+  }
+
+  function formatChatReply(text) {
+    var html = escapeHtml(text);
+    html = html.replace(/\n/g, '<br>');
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    html = html.replace(/\$([^$]+?)\$/g, function (m, latex) {
+      return '<span class="formula-inline" data-latex="' + latex.replace(/"/g, '&quot;') + '"></span>';
+    });
+    return html;
   }
 
   async function loadCollections() {
@@ -440,7 +488,7 @@
     els.collEmpty.style.display = 'none';
     try {
       var resp = await sendBg({ type: 'getCollections' });
-      if (resp.ok && resp.data && Array.isArray(resp.data)) {
+      if (resp.ok && resp.data && Array.isArray(resp.data) && resp.data.length > 0) {
         renderCollections(resp.data);
       } else {
         els.collEmpty.style.display = 'block';
@@ -452,10 +500,6 @@
   }
 
   function renderCollections(collections) {
-    if (collections.length === 0) {
-      els.collEmpty.style.display = 'block';
-      return;
-    }
     var html = '';
     collections.forEach(function (coll) {
       var total = coll.total || 0;
@@ -464,96 +508,72 @@
       html += '<div class="collection-item" data-id="' + coll.id + '">';
       html += '<div class="coll-title">' + escapeHtml(coll.title || '未命名合集') + '</div>';
       html += '<div class="coll-meta"><span>' + done + '/' + total + ' 集</span><span>' + pct + '%</span></div>';
-      html += '<div class="coll-progress"><div class="coll-progress-fill" style="width:' + pct + '%"></div></div>';
-      html += '</div>';
+      html += '<div class="coll-progress"><div class="coll-progress-fill" style="width:' + pct + '%"></div></div></div>';
     });
     els.collectionList.innerHTML = html;
     els.collectionList.style.display = 'block';
   }
 
   function switchTab(tabName) {
-    els.tabs.forEach(function (t) {
-      t.classList.toggle('active', t.dataset.tab === tabName);
-    });
-    els.tabPanes.forEach(function (p) {
-      p.classList.toggle('active', p.id === 'tab-' + tabName);
-    });
-    if (tabName === 'collection') {
-      loadCollections();
-    }
+    els.tabs.forEach(function (t) { t.classList.toggle('active', t.dataset.tab === tabName); });
+    els.tabPanes.forEach(function (p) { p.classList.toggle('active', p.id === 'tab-' + tabName); });
+    if (tabName === 'collection') loadCollections();
+    if (tabName === 'quiz' && state.noteDetail) renderQuiz();
   }
 
   function initEvents() {
-    els.refreshBtn.addEventListener('click', function () {
-      stopPolling();
-      init();
+    els.themeToggle.addEventListener('click', function () {
+      state.settings.theme = state.settings.theme === 'dark' ? 'light' : 'dark';
+      applySettings(); saveSettings();
     });
 
-    els.closeBtn.addEventListener('click', function () {
-      window.close();
-    });
-
-    els.tabs.forEach(function (tab) {
-      tab.addEventListener('click', function () {
-        switchTab(tab.dataset.tab);
+    els.paletteDots.forEach(function (dot) {
+      dot.addEventListener('click', function () {
+        state.settings.palette = dot.dataset.palette;
+        applySettings(); saveSettings();
       });
-    });
-
-    els.errorRetry.addEventListener('click', function () {
-      init();
-    });
-
-    els.generateBtn.addEventListener('click', generateNote);
-
-    els.regenBtn.addEventListener('click', function () {
-      if (confirm('确定要重新生成笔记吗？')) {
-        generateNote();
-      }
     });
 
     els.openFullBtn.addEventListener('click', function () {
       if (state.note && state.note.id) {
-        chrome.tabs.create({ url: state.settings.backendUrl + '/#/note/' + state.note.id });
+        chrome.tabs.create({ url: state.settings.backendUrl + '/#/note/' + state.note.id, active: true });
       }
+    });
+
+    els.settingsBtn.addEventListener('click', function () { els.settingsOverlay.style.display = 'flex'; });
+    els.settingsClose.addEventListener('click', function () { els.settingsOverlay.style.display = 'none'; });
+    els.settingsOverlay.addEventListener('click', function (e) {
+      if (e.target === els.settingsOverlay) els.settingsOverlay.style.display = 'none';
+    });
+
+    els.tabs.forEach(function (tab) {
+      tab.addEventListener('click', function () { switchTab(tab.dataset.tab); });
+    });
+
+    els.errorRetry.addEventListener('click', init);
+    els.generateBtn.addEventListener('click', generateNote);
+    els.regenBtn.addEventListener('click', function () { if (confirm('确定要重新生成笔记吗？')) generateNote(); });
+
+    els.chatSend.addEventListener('click', sendChat);
+    els.chatInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
     });
 
     els.fontDec.addEventListener('click', function () {
-      if (state.settings.fontSize > 12) {
-        state.settings.fontSize -= 1;
-        applySettings();
-        saveSettings();
-      }
+      if (state.settings.fontSize > 12) { state.settings.fontSize -= 1; applySettings(); saveSettings(); }
     });
-
     els.fontInc.addEventListener('click', function () {
-      if (state.settings.fontSize < 20) {
-        state.settings.fontSize += 1;
-        applySettings();
-        saveSettings();
-      }
+      if (state.settings.fontSize < 20) { state.settings.fontSize += 1; applySettings(); saveSettings(); }
     });
-
-    els.themeBtns.forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        state.settings.theme = btn.dataset.theme;
-        applySettings();
-        saveSettings();
-      });
-    });
-
     els.expandChapters.addEventListener('change', function () {
       state.settings.expandChapters = els.expandChapters.checked;
       saveSettings();
-      if (state.noteDetail) {
-        renderNote();
-      }
+      if (state.noteDetail) renderNote();
     });
-
     els.saveSettings.addEventListener('click', function () {
       state.settings.backendUrl = els.backendUrl.value.replace(/\/$/, '');
-      saveSettings();
-      checkBackend();
-      alert('设置已保存');
+      saveSettings(); checkBackend();
+      els.settingsOverlay.style.display = 'none';
     });
   }
 
@@ -563,11 +583,7 @@
     initEvents();
     await checkBackend();
     var hasVideo = await loadVideoInfo();
-    if (hasVideo) {
-      await checkNote();
-    } else {
-      showNoteState('none');
-    }
+    if (hasVideo) { await checkNote(); } else { showNoteState('none'); }
   }
 
   document.addEventListener('DOMContentLoaded', init);
