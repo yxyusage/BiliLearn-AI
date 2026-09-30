@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BiliLearn-AI 笔记助手</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <div class="logo-area">
+        <div class="logo-icon">📖</div>
+        <div class="logo-text">
+          <div class="logo-title">BiliLearn-AI</div>
+          <div class="logo-sub">笔记助手</div>
+        </div>
+      </div>
+      <div class="status-dot" id="backendStatus" title="检测后端状态">
+        <span class="dot"></span>
+        <span class="status-text">检测中</span>
+      </div>
+    </header>
+
+    <div class="content" id="content">
+      <div class="loading-state" id="loadingState">
+        <div class="spinner"></div>
+        <p>正在读取视频信息...</p>
+      </div>
+
+      <div class="error-state" id="errorState" style="display:none">
+        <div class="error-icon">⚠️</div>
+        <p class="error-title" id="errorTitle">出错了</p>
+        <p class="error-desc" id="errorDesc"></p>
+        <button class="btn btn-primary" id="retryBtn">重试</button>
+      </div>
+
+      <div class="not-bilibili" id="notBilibili" style="display:none">
+        <div class="nb-icon">🎬</div>
+        <p class="nb-title">请在 B 站视频页面使用</p>
+        <p class="nb-desc">打开任意 B 站视频页面，点击插件图标即可生成或浏览笔记</p>
+      </div>
+
+      <div class="main-view" id="mainView" style="display:none">
+        <div class="video-info">
+          <div class="vi-thumb">🎬</div>
+          <div class="vi-info">
+            <div class="vi-title" id="videoTitle"></div>
+            <div class="vi-meta">
+              <span class="vi-bvid" id="videoBvid"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="note-section" id="noteSection">
+          <div class="no-note" id="noNote">
+            <div class="nn-icon">✨</div>
+            <p class="nn-title">还没有生成笔记</p>
+            <p class="nn-desc">AI 将自动提取字幕，生成带时间戳的结构化笔记</p>
+            <button class="btn btn-primary btn-block" id="generateBtn">
+              <span class="btn-icon">⚡</span> 生成笔记
+            </button>
+          </div>
+
+          <div class="generating" id="generating" style="display:none">
+            <div class="gen-header">
+              <div class="spinner spinner-sm"></div>
+              <span class="gen-text">AI 正在生成笔记...</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <p class="gen-tip" id="genTip">通常需要 1-5 分钟，请勿关闭此弹窗</p>
+          </div>
+
+          <div class="note-detail" id="noteDetail" style="display:none">
+            <div class="nd-header">
+              <div class="nd-title">📋 笔记概览</div>
+              <div class="nd-actions">
+                <button class="btn btn-text btn-sm" id="regenBtn">重新生成</button>
+                <button class="btn btn-outline btn-sm" id="openFullBtn">打开完整页面</button>
+              </div>
+            </div>
+            <div class="nd-summary" id="noteSummary"></div>
+            <div class="nd-chapters">
+              <div class="nd-chapters-title">📑 章节目录</div>
+              <div class="chapter-list" id="chapterList"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <footer class="app-footer">
+      <span>本地后端 · 数据不上传</span>
+    </footer>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

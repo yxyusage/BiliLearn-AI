@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "BiliLearn-AI 笔记助手",
+  "version": "1.0.0",
+  "description": "在 B 站看视频时一键生成 AI 结构化笔记，支持时间戳跳转、知识点浏览",
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": [
+    "https://www.bilibili.com/*",
+    "https://bilibili.com/*",
+    "http://127.0.0.1:8000/*",
+    "http://localhost:8000/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.bilibili.com/video/*",
+        "https://bilibili.com/video/*"
+      ],
+      "js": ["content/content.js"],
+      "css": ["content/content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "BiliLearn-AI 笔记助手"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
