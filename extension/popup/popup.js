@@ -131,6 +131,8 @@
       showView('notbilibili');
       return false;
     }
+    await sendBg({ type: 'ensureInjected', tabId: tab.id });
+    await new Promise(function (r) { setTimeout(r, 300); });
     var resp = await sendContent(tab.id, { type: 'getVideoInfo' });
     if (!resp.ok) {
       var errMsg = resp.error || '未知错误';

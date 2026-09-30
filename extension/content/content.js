@@ -1,5 +1,7 @@
 ﻿(function () {
   'use strict';
+  if (window.__bililearnInjected) return;
+  window.__bililearnInjected = true;
 
   function getBvid() {
     var match = window.location.href.match(/\/video\/(BV[a-zA-Z0-9]+)/);
