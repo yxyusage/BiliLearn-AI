@@ -1,0 +1,5 @@
+# 统一换行符，避免脚本在不同系统上损坏
+* text=auto
+*.sh text eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf

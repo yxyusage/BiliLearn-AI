@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="note-detail" v-loading="loading">
     <!-- 生成中 -->
     <div v-if="status === 'processing'" class="status-box">
@@ -26,6 +26,17 @@
             </template>
           </el-popconfirm>
           <el-button @click="$router.push('/')">返回首页</el-button>
+        </template>
+      </el-result>
+    </div>
+
+    <!-- 网络中断暂停 -->
+    <div v-else-if="status === 'pending'" class="status-box">
+      <el-result icon="warning" title="生成已暂停（网络中断）">
+        <template #sub-title><p class="err-text">{{ error || '网络恢复后点击「重新生成」继续。' }}</p></template>
+        <template #extra>
+          <el-button type="primary" :loading="retrying" @click="retryGenerate">重新生成</el-button>
+          <el-button @click="$router.push('/history')">去历史笔记查看</el-button>
         </template>
       </el-result>
     </div>
@@ -915,9 +926,9 @@ export default {
         if (st.status === 'done') {
           this.stopPolling()
           await this.load()
-        } else if (st.status === 'failed') {
+        } else if (st.status === 'failed' || st.status === 'pending') {
           this.stopPolling()
-          this.status = 'failed'
+          this.status = st.status
           this.error = st.error || ''
         } else {
           this.tick += 3

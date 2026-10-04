@@ -29,7 +29,7 @@
 3. 点 **「Download ZIP」**
 4. 下载完成后解压到任意目录（如 `D:\BiliLearn-AI`）
 
-> **为什么 ZIP 只有 10MB？** 正常的！代码本身就这么大。ZIP 里不包含依赖包（node_modules、.venv）和构建产物（dist），这些会在首次运行启动脚本时自动安装和构建，不需要手动处理。
+> **为什么 ZIP 很小？** 正常的！ZIP 里只包含源代码，不包含依赖包（node_modules、.venv）和构建产物（dist）。首次运行时，启动脚本或启动器会**自动安装依赖并构建前端**，不需要手动处理。
 
 ### 方式二：Git Clone（推荐开发者）
 
@@ -46,10 +46,12 @@ v1.7.0 起提供图形化启动器，不用再看黑窗口。
 
 ### Windows 用户
 
-1. 下载便携版：https://github.com/yxyusage/BiliLearn-AI/releases/download/v1.7.0/BiliLearn-AI-v1.7.0-portable.zip
+> **前提：电脑已安装 Python 3.10+ 和 Node.js 18+**。启动器会调用它们创建虚拟环境、安装依赖并构建前端页面；首次启动需要几分钟联网下载依赖，之后启动只需几秒。
+
+1. 下载图形启动器：https://github.com/yxyusage/BiliLearn-AI/releases/download/v1.7.0/BiliLearn-AI-v1.7.0-portable.zip
 2. 解压到任意目录
 3. 双击 `BiliLearn-AI-Launcher.exe`
-4. 点「启动服务」，等待进度条完成
+4. 点「启动服务」，等待进度条完成（首次会先建环境、装依赖、构建前端）
 5. 浏览器自动打开
 
 启动器功能：

@@ -1,4 +1,15 @@
-﻿const API_BASE = 'http://127.0.0.1:8000/api';
+const DEFAULT_API_BASE = 'http://127.0.0.1:8000/api';
+
+// 后端地址可在侧边栏「设置」中修改，存于 chrome.storage.local.bililearn_ext_settings.backendUrl
+async function getApiBase() {
+  try {
+    const stored = await chrome.storage.local.get(['bililearn_ext_settings']);
+    const s = stored && stored.bililearn_ext_settings;
+    const base = s && s.backendUrl ? String(s.backendUrl).replace(/\/+$/, '') : '';
+    if (base) return base + '/api';
+  } catch (e) { /* 读取失败回退默认地址 */ }
+  return DEFAULT_API_BASE;
+}
 
 chrome.sidePanel
   .setPanelBehavior({ openPanelOnActionClick: true })
@@ -7,7 +18,7 @@ chrome.sidePanel
   });
 
 async function apiRequest(path, options) {
-  const url = API_BASE + path;
+  const url = (await getApiBase()) + path;
   const opts = Object.assign({
     headers: { 'Content-Type': 'application/json' }
   }, options || {});

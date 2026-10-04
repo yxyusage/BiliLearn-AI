@@ -1,5 +1,5 @@
 /* BiliLearn-AI Service Worker：静态资源缓存优先，API 走网络优先。 */
-const VERSION = 'bililearn-v1.6.0'
+const VERSION = 'bililearn-v1.7.0'
 const STATIC_ASSETS = ['./', './index.html', './manifest.webmanifest', './icon.svg', './icon-maskable.svg']
 
 self.addEventListener('install', function (event) {
@@ -36,6 +36,20 @@ self.addEventListener('fetch', function (event) {
         return res
       }).catch(function () {
         return caches.match(req)
+      })
+    )
+    return
+  }
+
+  // 页面导航：网络优先，避免更新后一直命中旧的 index.html
+  if (req.mode === 'navigate') {
+    event.respondWith(
+      fetch(req).then(function (res) {
+        var copy = res.clone()
+        caches.open(VERSION).then(function (cache) { cache.put(req, copy) })
+        return res
+      }).catch(function () {
+        return caches.match(req).then(function (c) { return c || caches.match('./index.html') })
       })
     )
     return

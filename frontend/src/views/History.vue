@@ -65,7 +65,7 @@
             </div>
           </div>
           <div class="note-card-actions">
-            <el-button v-if="n.status === 'failed'" size="small" type="warning" @click.stop="retry(n)">重试</el-button>
+            <el-button v-if="n.status === 'failed' || n.status === 'pending'" size="small" type="warning" @click.stop="retry(n)">重试</el-button>
             <el-popconfirm title="确认删除？" @confirm="remove(n)">
               <template #reference>
                 <el-button size="small" type="danger" text>删除</el-button>

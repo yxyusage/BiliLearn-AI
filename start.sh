@@ -19,13 +19,20 @@ if [ ! -d ".venv" ]; then
   python3 -m venv .venv
 fi
 
-if [ ! -d ".venv/lib" ] || [ ! -f ".venv/bin/uvicorn" ]; then
-  echo "[2/4] 首次运行：安装后端依赖（约 1-3 分钟）..."
+# 依赖：requirements.txt 有更新时重新安装（用时间戳戳记，避免每次启动都装）
+if [ ! -f ".venv/.requirements.stamp" ] || [ "backend/requirements.txt" -nt ".venv/.requirements.stamp" ]; then
+  echo "[2/4] 安装后端依赖（约 1-3 分钟）..."
   .venv/bin/pip install -r backend/requirements.txt -q
+  cp backend/requirements.txt .venv/.requirements.stamp
 fi
 
-if [ ! -d "frontend/dist" ]; then
-  echo "[3/4] 首次运行：安装并构建前端（约 2-5 分钟）..."
+# 前端：缺少构建产物时安装并构建
+if [ ! -f "frontend/dist/index.html" ]; then
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "[错误] 未检测到 npm，请先安装 Node.js 18+"
+    exit 1
+  fi
+  echo "[3/4] 构建前端（约 2-5 分钟）..."
   (cd frontend && npm install --no-audit --no-fund && npm run build)
 fi
 
@@ -47,4 +54,4 @@ fi
 
 echo "浏览器访问 http://localhost:8000"
 echo "      （按 Ctrl+C 停止程序；下次运行本脚本即可再次启动）"
-.venv/bin/python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir backend

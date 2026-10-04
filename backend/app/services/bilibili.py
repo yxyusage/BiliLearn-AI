@@ -133,40 +133,46 @@ def get_subtitles(bvid: str, page: int = 1, cookie: str = "") -> Tuple[List[dict
         "subtitleslangs": list(_LANG_PREFS),
         "http_headers": _make_headers(cookie),
     }
-    for attempt in range(2):
-        with tempfile.TemporaryDirectory() as tmp:
-            # 方式1：从 extract_info 返回的内存数据中读取
-            try:
-                with yt_dlp.YoutubeDL(base_opts) as ydl:
-                    info = ydl.extract_info(url, download=False)
-                items = _subs_from_info(info)
-                if items:
-                    return _dedupe(items), "官方字幕(CC)"
-            except Exception:
-                pass
-            # 方式2：下载字幕文件到临时目录再解析
-            try:
-                disk_opts = dict(base_opts)
-                disk_opts["outtmpl"] = os.path.join(tmp, "%(id)s.%(ext)s")
-                with yt_dlp.YoutubeDL(disk_opts) as ydl:
-                    ydl.download([url])
-            except Exception:
-                pass
-            for name in sorted(os.listdir(tmp)):
-                ext = name.rsplit(".", 1)[-1] if "." in name else ""
+    saved_proxy: dict = {}
+    try:
+        for attempt in range(2):
+            with tempfile.TemporaryDirectory() as tmp:
+                # 方式1：从 extract_info 返回的内存数据中读取
                 try:
-                    raw = Path(os.path.join(tmp, name)).read_text(encoding="utf-8", errors="ignore")
+                    with yt_dlp.YoutubeDL(base_opts) as ydl:
+                        info = ydl.extract_info(url, download=False)
+                    items = _subs_from_info(info)
+                    if items:
+                        return _dedupe(items), "官方字幕(CC)"
                 except Exception:
-                    continue
-                items = _parse_subtitle_text(raw, ext)
-                if items:
-                    return _dedupe(items), "官方字幕(CC)"
-        # 首次失败且系统有代理：清代理直连重试一次
-        if attempt == 0 and has_proxy_env():
-            clear_proxy_env()
-        else:
-            break
-    return [], ""
+                    pass
+                # 方式2：下载字幕文件到临时目录再解析
+                try:
+                    disk_opts = dict(base_opts)
+                    disk_opts["outtmpl"] = os.path.join(tmp, "%(id)s.%(ext)s")
+                    with yt_dlp.YoutubeDL(disk_opts) as ydl:
+                        ydl.download([url])
+                except Exception:
+                    pass
+                for name in sorted(os.listdir(tmp)):
+                    ext = name.rsplit(".", 1)[-1] if "." in name else ""
+                    try:
+                        raw = Path(os.path.join(tmp, name)).read_text(encoding="utf-8", errors="ignore")
+                    except Exception:
+                        continue
+                    items = _parse_subtitle_text(raw, ext)
+                    if items:
+                        return _dedupe(items), "官方字幕(CC)"
+            # 首次失败且系统有代理：临时清代理直连重试一次
+            if attempt == 0 and not saved_proxy and has_proxy_env():
+                saved_proxy = clear_proxy_env()
+            else:
+                break
+        return [], ""
+    finally:
+        # 无论成功或失败都恢复被临时清除的代理环境变量
+        if saved_proxy:
+            restore_proxy_env(saved_proxy)
 
 
 def _subs_from_info(info: dict) -> List[dict]:

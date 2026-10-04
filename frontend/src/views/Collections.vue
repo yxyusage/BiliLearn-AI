@@ -208,13 +208,14 @@
 
 <script>
 import { ElMessage } from 'element-plus'
+import { Loading } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import api from '../api'
 import MermaidView from '../components/MermaidView.vue'
 
 export default {
   name: 'CollectionsView',
-  components: { MermaidView },
+  components: { MermaidView, Loading },
   data() {
     return {
       jobs: [],

@@ -60,6 +60,8 @@ def _set_progress(mat_id: int, progress: str):
 
 
 def generate_review_material(mat_id: int, llm: BaseLLM):
+    subject = ""
+    job_title = ""
     db = SessionLocal()
     try:
         mat = db.query(ReviewMaterial).filter(ReviewMaterial.id == mat_id).first()
@@ -82,8 +84,13 @@ def generate_review_material(mat_id: int, llm: BaseLLM):
             mat.error = "该合集还没有已完成的笔记"
             db.commit()
             return
+        # 提前取出后续要用的字段，避免会话关闭后再访问
+        subject = mat.subject
+        job_title = job.title
+    finally:
         db.close()
 
+    try:
         _set_progress(mat_id, "正在蒸馏 " + str(len(notes)) + " 篇笔记…")
         distilled = []
         for n in notes:
@@ -94,25 +101,31 @@ def generate_review_material(mat_id: int, llm: BaseLLM):
                 continue
         if not distilled:
             db = SessionLocal()
-            mat = db.query(ReviewMaterial).filter(ReviewMaterial.id == mat_id).first()
-            mat.status = "failed"
-            mat.error = "笔记数据解析失败"
-            db.commit()
+            try:
+                mat = db.query(ReviewMaterial).filter(ReviewMaterial.id == mat_id).first()
+                mat.status = "failed"
+                mat.error = "笔记数据解析失败"
+                db.commit()
+            finally:
+                db.close()
             return
 
         distilled_json = json.dumps(distilled, ensure_ascii=False)
         _set_progress(mat_id, "正在 AI 重排知识体系（" + str(len(distilled)) + " 集）…")
 
-        data = llm.chat_json(review_material_prompt(job.title, mat.subject, distilled_json), max_tokens=32000)
+        data = llm.chat_json(review_material_prompt(job_title, subject, distilled_json), max_tokens=32000)
 
         db = SessionLocal()
-        mat = db.query(ReviewMaterial).filter(ReviewMaterial.id == mat_id).first()
-        mat.result_json = json.dumps(data, ensure_ascii=False)
-        mat.status = "done"
-        mat.progress = "完成"
-        if not mat.title:
-            mat.title = data.get("title") or (job.title + " 复习资料")
-        db.commit()
+        try:
+            mat = db.query(ReviewMaterial).filter(ReviewMaterial.id == mat_id).first()
+            mat.result_json = json.dumps(data, ensure_ascii=False)
+            mat.status = "done"
+            mat.progress = "完成"
+            if not mat.title:
+                mat.title = data.get("title") or (job_title + " 复习资料")
+            db.commit()
+        finally:
+            db.close()
     except Exception as exc:
         db = SessionLocal()
         try:

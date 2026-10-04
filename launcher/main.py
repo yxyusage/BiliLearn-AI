@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import time
+import shutil
 import threading
 import subprocess
 import webbrowser
@@ -10,9 +11,8 @@ from datetime import datetime
 
 import customtkinter as ctk
 import requests
-from PIL import Image
 
-VERSION = "1.0.0"
+VERSION = "1.7.0"
 APP_NAME = "BiliLearn-AI"
 GITHUB_REPO = "yxyusage/BiliLearn-AI"
 DEFAULT_PORT = 8000
@@ -23,9 +23,12 @@ else:
     APP_DIR = Path(__file__).parent.parent
 
 CONFIG_PATH = APP_DIR / "launcher_config.json"
-DATA_DIR = APP_DIR / "data"
 VENV_DIR = APP_DIR / ".venv"
 BACKEND_DIR = APP_DIR / "backend"
+FRONTEND_DIR = APP_DIR / "frontend"
+# 真实数据目录是 backend/data（与后端 config.DATA_DIR 一致）
+DATA_DIR = BACKEND_DIR / "data"
+REQUIREMENTS_STAMP = VENV_DIR / ".requirements.stamp"
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -48,7 +51,7 @@ def load_config():
     default = {
         "api_key": "",
         "model": "deepseek-chat",
-        "base_url": "https://api.deepseek.com",
+        "base_url": "https://api.deepseek.com/v1",
         "port": DEFAULT_PORT,
         "theme": "dark",
         "auto_open_browser": True,
@@ -84,6 +87,20 @@ def get_pip_executable():
     return VENV_DIR / "bin" / "pip"
 
 
+def find_system_python():
+    """定位系统 Python。
+
+    打包成 exe 后 sys.executable 指向 exe 自身而非 Python，必须从 PATH 查找。
+    """
+    if not getattr(sys, "frozen", False):
+        return sys.executable
+    for name in ("python", "python3"):
+        path = shutil.which(name)
+        if path:
+            return path
+    return ""
+
+
 class ServiceManager:
     def __init__(self, log_callback, status_callback):
         self.log = log_callback
@@ -92,9 +109,12 @@ class ServiceManager:
         self.running = False
 
     def check_python(self):
+        python = find_system_python()
+        if not python:
+            return False
         try:
             result = subprocess.run(
-                [sys.executable, "--version"],
+                [python, "--version"],
                 capture_output=True, text=True, timeout=10
             )
             return result.returncode == 0
@@ -105,10 +125,14 @@ class ServiceManager:
         return get_python_executable().exists()
 
     def create_venv(self):
+        python = find_system_python()
+        if not python:
+            self.log("未找到系统 Python，无法创建虚拟环境")
+            return False
         self.log("创建虚拟环境...")
         try:
             subprocess.run(
-                [sys.executable, "-m", "venv", str(VENV_DIR)],
+                [python, "-m", "venv", str(VENV_DIR)],
                 check=True, capture_output=True, text=True
             )
             self.log("虚拟环境创建完成")
@@ -117,7 +141,16 @@ class ServiceManager:
             self.log(f"创建虚拟环境失败: {e.stderr}")
             return False
 
+    def _deps_up_to_date(self):
+        req = BACKEND_DIR / "requirements.txt"
+        if not req.exists() or not REQUIREMENTS_STAMP.exists():
+            return False
+        return REQUIREMENTS_STAMP.stat().st_mtime >= req.stat().st_mtime
+
     def install_dependencies(self):
+        if self._deps_up_to_date():
+            self.log("依赖已是最新，跳过安装")
+            return True
         self.log("安装 Python 依赖...")
         pip = str(get_pip_executable())
         req = str(BACKEND_DIR / "requirements.txt")
@@ -140,6 +173,10 @@ class ServiceManager:
                 )
                 if result.returncode == 0:
                     self.log(f"  {name} 安装成功")
+                    try:
+                        shutil.copyfile(req, REQUIREMENTS_STAMP)
+                    except Exception:
+                        pass
                     return True
                 self.log(f"  {name} 失败: {result.stderr[-200:]}")
             except subprocess.TimeoutExpired:
@@ -147,6 +184,46 @@ class ServiceManager:
             except Exception as e:
                 self.log(f"  {name} 错误: {e}")
         return False
+
+    def build_frontend_if_needed(self):
+        """前端构建产物缺失时自动构建（否则后端无页面可托管，访问 8000 会 404）。"""
+        dist_index = FRONTEND_DIR / "dist" / "index.html"
+        if dist_index.exists():
+            return True
+        npm = shutil.which("npm")
+        if not npm:
+            self.log("未检测到 Node.js/npm，无法构建前端页面。请先安装 Node 18+")
+            return False
+        use_shell = sys.platform == "win32"
+        self.set_status("构建前端页面...", COLORS["warning"])
+        if not (FRONTEND_DIR / "node_modules").exists():
+            self.log("安装前端依赖（npm install，首次较慢）...")
+            try:
+                r = subprocess.run(
+                    [npm, "install", "--no-audit", "--no-fund"],
+                    cwd=str(FRONTEND_DIR), shell=use_shell,
+                    capture_output=True, text=True, timeout=1800
+                )
+            except subprocess.TimeoutExpired:
+                self.log("npm install 超时")
+                return False
+            if r.returncode != 0:
+                self.log("npm install 失败: " + (r.stderr or r.stdout or "")[-200:])
+                return False
+        self.log("构建前端（npm run build）...")
+        try:
+            r = subprocess.run(
+                [npm, "run", "build"],
+                cwd=str(FRONTEND_DIR), shell=use_shell,
+                capture_output=True, text=True, timeout=1800
+            )
+        except subprocess.TimeoutExpired:
+            self.log("npm run build 超时")
+            return False
+        if r.returncode != 0:
+            self.log("npm run build 失败: " + (r.stderr or r.stdout or "")[-200:])
+            return False
+        return dist_index.exists()
 
     def start(self, port, config):
         if self.running:
@@ -171,17 +248,24 @@ class ServiceManager:
             self.set_status("启动失败", COLORS["error"])
             return
 
+        self.set_status("构建前端...", COLORS["warning"])
+        if not self.build_frontend_if_needed():
+            self.log("前端构建失败，页面将无法访问")
+            self.set_status("启动失败", COLORS["error"])
+            return
+
         self.set_status("启动服务...", COLORS["warning"])
         self.log(f"启动后端服务 (端口 {port})...")
 
+        # 后端读取的是 BILI_ 前缀的环境变量（见 backend/app/config.py）
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
         if config.get("api_key"):
-            env["DEEPSEEK_API_KEY"] = config["api_key"]
+            env["BILI_DEEPSEEK_API_KEY"] = config["api_key"]
         if config.get("base_url"):
-            env["DEEPSEEK_BASE_URL"] = config["base_url"]
+            env["BILI_DEEPSEEK_BASE_URL"] = config["base_url"]
         if config.get("model"):
-            env["DEEPSEEK_MODEL"] = config["model"]
+            env["BILI_DEEPSEEK_MODEL"] = config["model"]
 
         python_exe = str(get_python_executable())
         cmd = [python_exe, "-m", "uvicorn", "app.main:app",
@@ -247,14 +331,81 @@ class BiliLearnLauncher(ctk.CTk):
         self.config = load_config()
         self.log_lines = []
         self.service = ServiceManager(self._log, self._set_status)
+        self.tray_icon = None
 
         self.title(f"{APP_NAME} 启动器 v{VERSION}")
         self.geometry("520x680")
         self.resizable(False, False)
         self.configure(fg_color=COLORS["bg"])
+        # 关闭窗口时按设置最小化到托盘
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self._build_ui()
         self._check_update_silent()
+
+    def _on_close(self):
+        if self.config.get("minimize_to_tray", True) and self._start_tray():
+            self.withdraw()
+        else:
+            self._quit()
+
+    def _start_tray(self):
+        """创建系统托盘图标；不可用时返回 False，由调用方正常退出。"""
+        if self.tray_icon:
+            return True
+        try:
+            import pystray
+        except Exception:
+            self.log("未安装 pystray，关闭窗口将直接退出")
+            return False
+        try:
+            image = self._make_tray_image()
+            menu = pystray.Menu(
+                pystray.MenuItem("显示主界面", lambda: self.after(0, self._show_window), default=True),
+                pystray.MenuItem("退出", lambda: self.after(0, self._quit)),
+            )
+            self.tray_icon = pystray.Icon("bililearn-ai", image, f"{APP_NAME} 启动器", menu)
+            threading.Thread(target=self.tray_icon.run, daemon=True).start()
+            return True
+        except Exception as e:
+            self.log(f"托盘初始化失败：{e}")
+            self.tray_icon = None
+            return False
+
+    @staticmethod
+    def _make_tray_image():
+        from PIL import Image, ImageDraw
+        img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        d.rounded_rectangle([4, 4, 60, 60], radius=14, fill=(13, 148, 136, 255))
+        d.rectangle([16, 18, 40, 24], fill=(255, 255, 255, 255))
+        d.rectangle([16, 30, 48, 36], fill=(255, 255, 255, 255))
+        d.rectangle([16, 42, 34, 48], fill=(255, 255, 255, 255))
+        return img
+
+    def _show_window(self):
+        try:
+            self.deiconify()
+            self.lift()
+            self.focus_force()
+        except Exception:
+            pass
+
+    def _quit(self):
+        try:
+            self.service.stop()
+        except Exception:
+            pass
+        if self.tray_icon:
+            try:
+                self.tray_icon.stop()
+            except Exception:
+                pass
+            self.tray_icon = None
+        try:
+            self.destroy()
+        except Exception:
+            pass
 
     def _build_ui(self):
         self.grid_columnconfigure(0, weight=1)

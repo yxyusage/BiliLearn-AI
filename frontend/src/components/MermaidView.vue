@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="mermaid-view" :class="{ compact: compact }" v-loading="loading">
     <div v-if="error" class="mm-error">{{ error }}</div>
     <template v-else>
@@ -36,6 +36,10 @@ export default {
       initialized = false
       this.render()
     }
+  },
+  computed: {
+    // 把外部主题对象挂到实例上，watch 'theme.dark' 才能生效
+    theme() { return theme }
   },
   methods: {
     ensureInit() {

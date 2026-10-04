@@ -150,7 +150,7 @@ def start_favorites(req: FavStartRequest, db: Session = Depends(get_db)):
             if existing:
                 note_ids.append(existing.id)
                 continue
-            note = Note(bvid=bvid, page=1, title=title, subject=req.subject, status="running")
+            note = Note(bvid=bvid, page=1, title=title, subject=req.subject, status="processing")
             db.add(note)
             db.commit()
             db.refresh(note)

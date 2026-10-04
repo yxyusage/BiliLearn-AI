@@ -37,7 +37,8 @@ def resolve_llm_config(
     model: Optional[str] = None,
     base_url: Optional[str] = None,
 ) -> dict:
-    provider = provider or get_setting(db, "provider", "deepseek")
+    # 数据库优先，其次环境变量 BILI_DEFAULT_PROVIDER，最后回退 deepseek
+    provider = provider or get_setting(db, "provider") or env_settings.default_provider or "deepseek"
     if provider not in PROVIDERS:
         provider = "deepseek"
     if provider == "ollama":
@@ -51,5 +52,6 @@ def resolve_llm_config(
         "provider": provider,
         "api_key": api_key or get_setting(db, provider + "_api_key", ""),
         "model": model or get_setting(db, provider + "_model", PROVIDERS[provider]["default_model"]),
-        "base_url": base_url or PROVIDERS[provider]["base_url"],
+        # 允许用环境变量覆盖接口地址（如本地代理/中转），为空则用供应商默认
+        "base_url": base_url or get_setting(db, provider + "_base_url", "") or PROVIDERS[provider]["base_url"],
     }

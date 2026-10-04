@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="dashboard-page" v-loading="loading">
     <div class="page-head">
       <h2 class="page-title">📊 学习数据</h2>
@@ -125,6 +125,10 @@ export default {
     window.removeEventListener('resize', this.resizeCharts)
     this.charts.forEach(function (c) { c.dispose() })
     this.animTimers.forEach(function (id) { cancelAnimationFrame(id) })
+  },
+  computed: {
+    // 把外部主题对象挂到实例上，watch 'theme.dark' / 'theme.palette' 才能生效
+    theme() { return theme }
   },
   methods: {
     loadRecent() {

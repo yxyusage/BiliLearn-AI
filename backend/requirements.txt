@@ -11,3 +11,5 @@ fpdf2>=2.7.9
 python-multipart>=0.0.12
 openpyxl>=3.1.5
 faster-whisper>=1.0.3
+genanki>=0.13.1
+PyMuPDF>=1.24.0

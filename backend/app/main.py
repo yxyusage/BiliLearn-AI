@@ -14,7 +14,7 @@ from .routers import collections, config, export, favorites, notes, quiz, review
 Base.metadata.create_all(bind=engine)
 run_migrations()
 
-APP_VERSION = "1.6.0"
+APP_VERSION = "1.7.0"
 
 app = FastAPI(title="BiliLearn-AI", description="B站全学科AI学习助手", version=APP_VERSION)
 
@@ -43,7 +43,7 @@ def _startup_recovery():
     """进程重启后，把中断在“生成中/运行中”的任务标记为失败，避免永久卡死。"""
     db = SessionLocal()
     try:
-        stuck_notes = db.query(Note).filter(Note.status == "processing").all()
+        stuck_notes = db.query(Note).filter(Note.status.in_(["processing", "running"])).all()
         for n in stuck_notes:
             n.status = "failed"
             n.error = "服务重启导致生成中断，请点击重试"
