@@ -20,6 +20,26 @@
 
 ---
 
+## 下载项目
+
+### 方式一：Download ZIP（推荐小白）
+
+1. 打开项目主页：https://github.com/yxyusage/BiliLearn-AI
+2. 点右上角绿色的 **「Code」** 按钮
+3. 点 **「Download ZIP」**
+4. 下载完成后解压到任意目录（如 `D:\BiliLearn-AI`）
+
+> **为什么 ZIP 只有 10MB？** 正常的！代码本身就这么大。ZIP 里不包含依赖包（node_modules、.venv）和构建产物（dist），这些会在首次运行启动脚本时自动安装和构建，不需要手动处理。
+
+### 方式二：Git Clone（推荐开发者）
+
+```bash
+git clone https://github.com/yxyusage/BiliLearn-AI.git
+cd BiliLearn-AI
+```
+
+---
+
 ## 快速开始（小白版）
 
 ### 第一步：安装环境
