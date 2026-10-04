@@ -55,6 +55,10 @@ def run_migrations() -> None:
         if note_cols and "dictations" not in note_cols:
             conn.execute(text("ALTER TABLE notes ADD COLUMN dictations TEXT DEFAULT ''"))
             conn.commit()
+        # v2.1.0：notes.learning_status 学习进度
+        if note_cols and "learning_status" not in note_cols:
+            conn.execute(text("ALTER TABLE notes ADD COLUMN learning_status TEXT DEFAULT 'unlearned'"))
+            conn.commit()
         rp_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(review_plan)"))]
         for col, ddl in (
             ("repetitions", "ALTER TABLE review_plan ADD COLUMN repetitions INTEGER DEFAULT 0"),

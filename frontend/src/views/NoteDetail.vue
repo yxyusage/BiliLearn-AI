@@ -58,6 +58,18 @@
             <div class="meta-line">
               <el-tag size="small" type="info" effect="plain">{{ bvid }}</el-tag>
               <span class="note-title">{{ title }}</span>
+              <el-dropdown v-if="status === 'done'" trigger="click" @command="setLearningStatus">
+                <el-tag :type="learningTagType(learningStatus)" size="small" effect="plain" style="cursor:pointer">
+                  {{ learningLabel(learningStatus) }} ▾
+                </el-tag>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="unlearned">未学</el-dropdown-item>
+                    <el-dropdown-item command="learning">学习中</el-dropdown-item>
+                    <el-dropdown-item command="completed">已学完</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
               <el-button size="small" text type="warning" @click="openConfusionAtTime">
                 🙋 没懂（{{ lastJumpLabel }}）
               </el-button>
@@ -596,6 +608,7 @@ export default {
       stageText: '',
       status: 'pending',
       error: '',
+      learningStatus: 'unlearned',
       retrying: false,
       bvid: '',
       page: 1,
@@ -738,6 +751,23 @@ export default {
     if (this._cp) this._cp.removeEventListener('scroll', this.onReadScroll)
   },
   methods: {
+    learningLabel(s) {
+      var labels = { unlearned: '未学', learning: '学习中', completed: '已学完' }
+      return labels[s] || '未学'
+    },
+    learningTagType(s) {
+      var types = { unlearned: 'info', learning: 'warning', completed: 'success' }
+      return types[s] || 'info'
+    },
+    async setLearningStatus(status) {
+      try {
+        await api.put('/notes/' + this.noteId + '/learning-status', { status: status })
+        this.learningStatus = status
+        this.$message.success('已标记为「' + this.learningLabel(status) + '」')
+      } catch (e) {
+        this.$message.error(e.message)
+      }
+    },
     async loadConfig() {
       try {
         var cfg = await api.get('/config')
@@ -762,6 +792,7 @@ export default {
     applyNote(data) {
       this.status = data.status
       this.error = data.error || ''
+      this.learningStatus = data.learning_status || 'unlearned'
       if (data.status === 'processing' && data.error) this.stageText = data.error
       if (data.created_at) {
         var iso = String(data.created_at)

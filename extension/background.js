@@ -106,6 +106,13 @@ function downloadImage(dataUrl, filename) {
   });
 }
 
+async function updateLearningStatus(noteId, status) {
+  return apiRequest('/notes/' + noteId + '/learning-status', {
+    method: 'PUT',
+    body: JSON.stringify({ status: status })
+  });
+}
+
 chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   (async function () {
     try {
@@ -157,6 +164,11 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         }
         case 'downloadImage': {
           const result = await downloadImage(msg.dataUrl, msg.filename);
+          sendResponse({ ok: true, data: result });
+          break;
+        }
+        case 'updateLearningStatus': {
+          const result = await updateLearningStatus(msg.noteId, msg.status);
           sendResponse({ ok: true, data: result });
           break;
         }

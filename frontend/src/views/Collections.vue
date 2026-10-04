@@ -109,9 +109,17 @@
           :status="job.status === 'done' ? 'success' : (job.status === 'failed' ? 'exception' : undefined)"
         />
         <div class="progress-text">完成 {{ job.done_count }} / 失败 {{ job.failed_count }} / 共 {{ job.total }} 集</div>
+        <div class="learning-progress" v-if="learningStats.total > 0">
+          <span class="lp-label">学习进度：</span>
+          <el-progress :percentage="learningStats.percent" :stroke-width="6" style="width:200px;display:inline-block;vertical-align:middle" />
+          <span class="lp-text">已学完 {{ learningStats.completed }} / 学习中 {{ learningStats.learning }} / 未学 {{ learningStats.unlearned }}</span>
+        </div>
         <div class="map-actions" v-if="job.done_count > 0">
           <el-button type="primary" size="small" :loading="mapLoading" @click="generateMap">
             {{ job.mindmap ? '重新生成全课程知识图谱' : '生成全课程知识图谱与考点地图' }}
+          </el-button>
+          <el-button type="warning" size="small" :loading="graphLoading" @click="generateEChartsGraph">
+            🕸️ 生成知识点关联图谱
           </el-button>
           <el-button type="success" size="small" :loading="reviewLoading" @click="startReviewMaterial">
             {{ reviewMat && reviewMat.status === 'done' ? '重新生成复习资料 PDF' : '生成合集复习资料（可打印 PDF）' }}
@@ -182,11 +190,25 @@
         </el-col>
       </el-row>
     </template>
+
+    <el-dialog v-model="graphDialogVisible" title="知识点关联图谱" width="80%" top="5vh" :close-on-click-modal="false">
+      <div v-if="graphLoading" style="text-align:center;padding:60px">
+        <el-icon class="is-loading" style="font-size:32px"><Loading /></el-icon>
+        <p style="margin-top:12px;color:var(--c-text-3)">AI 正在分析合集笔记，构建知识点关联图谱…</p>
+        <p style="font-size:12px;color:var(--c-text-3)">预计需要 30-60 秒，请耐心等待</p>
+      </div>
+      <div v-else-if="echartsGraph.nodes && echartsGraph.nodes.length > 0" id="echarts-graph-container" style="width:100%;height:600px"></div>
+      <el-empty v-else description="点击「生成知识点关联图谱」按钮开始生成" />
+      <template #footer>
+        <el-button @click="graphDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script>
 import { ElMessage } from 'element-plus'
+import * as echarts from 'echarts'
 import api from '../api'
 import MermaidView from '../components/MermaidView.vue'
 
@@ -203,13 +225,36 @@ export default {
       timer: null,
       reviewMat: null,
       reviewLoading: false,
-      reviewTimer: null
+      reviewTimer: null,
+      graphDialogVisible: false,
+      graphLoading: false,
+      echartsGraph: { nodes: [], links: [] },
+      graphChart: null
     }
   },
   computed: {
     jobId() {
       var id = this.$route.params.id
       return id ? Number(id) : 0
+    },
+    learningStats() {
+      if (!this.job || !this.job.results) return { total: 0, completed: 0, learning: 0, unlearned: 0, percent: 0 }
+      var completed = 0, learning = 0, unlearned = 0
+      this.job.results.forEach(function (r) {
+        if (r.status !== 'done') return
+        var s = r.learning_status || 'unlearned'
+        if (s === 'completed') completed++
+        else if (s === 'learning') learning++
+        else unlearned++
+      })
+      var total = completed + learning + unlearned
+      return {
+        total: total,
+        completed: completed,
+        learning: learning,
+        unlearned: unlearned,
+        percent: total ? Math.round(completed * 100 / total) : 0
+      }
     }
   },
   created() {
@@ -259,10 +304,24 @@ export default {
           clearInterval(this.timer)
           this.timer = null
         }
+        this.loadLearningStatus()
       } catch (e) {
         ElMessage.error(e.message)
         this.$router.push('/collections')
       }
+    },
+    async loadLearningStatus() {
+      if (!this.job || !this.job.results) return
+      try {
+        var notes = await api.get('/notes?limit=200')
+        var noteMap = {}
+        notes.forEach(function (n) { noteMap[n.id] = n.learning_status || 'unlearned' })
+        this.job.results.forEach(function (r) {
+          if (r.status === 'done' && r.note_id) {
+            r.learning_status = noteMap[r.note_id] || 'unlearned'
+          }
+        })
+      } catch (e) { /* 忽略 */ }
     },
     async generateMap() {
       this.mapLoading = true
@@ -331,6 +390,109 @@ export default {
       } catch (e) {
         ElMessage.error(e.message)
       }
+    },
+    async generateEChartsGraph() {
+      this.graphDialogVisible = true
+      this.graphLoading = true
+      this.echartsGraph = { nodes: [], links: [] }
+      try {
+        var res = await api.post('/collections/' + this.jobId + '/knowledge-graph')
+        this.echartsGraph = { nodes: res.nodes || [], links: res.links || [] }
+        if (this.echartsGraph.nodes.length > 0) {
+          this.$nextTick(function () {
+            this.renderEChartsGraph()
+          }.bind(this))
+        }
+      } catch (e) {
+        ElMessage.error(e.response?.data?.detail || e.message)
+      } finally {
+        this.graphLoading = false
+      }
+    },
+    renderEChartsGraph() {
+      var container = document.getElementById('echarts-graph-container')
+      if (!container) return
+      if (this.graphChart) this.graphChart.dispose()
+      this.graphChart = echarts.init(container)
+      var categories = ['基础概念', '核心原理', '关键技术', '应用场景', '易错点']
+      var nodes = this.echartsGraph.nodes.map(function (n) {
+        return {
+          id: n.id,
+          name: n.name,
+          category: categories.indexOf(n.category) >= 0 ? categories.indexOf(n.category) : 0,
+          symbolSize: 40 + (n.note_ids || []).length * 5,
+          desc: n.desc || '',
+          note_ids: n.note_ids || []
+        }
+      })
+      var links = this.echartsGraph.links.map(function (l) {
+        return {
+          source: l.source,
+          target: l.target,
+          lineStyle: {
+            color: l.relation === 'prerequisite' ? '#f56c6c' : (l.relation === 'contains' ? '#67c23a' : '#909399'),
+            width: l.relation === 'prerequisite' ? 2 : 1,
+            type: l.relation === 'prerequisite' ? 'solid' : 'dashed'
+          },
+          label: {
+            show: true,
+            formatter: l.relation === 'prerequisite' ? '前置' : (l.relation === 'contains' ? '包含' : '相关'),
+            fontSize: 10
+          }
+        }
+      })
+      var option = {
+        tooltip: {
+          formatter: function (params) {
+            if (params.dataType === 'node') {
+              return '<b>' + params.data.name + '</b><br/>类别：' + categories[params.data.category] + '<br/>' + (params.data.desc || '')
+            }
+            return ''
+          }
+        },
+        legend: [{
+          data: categories,
+          top: 10
+        }],
+        series: [{
+          type: 'graph',
+          layout: 'force',
+          data: nodes,
+          links: links,
+          categories: categories.map(function (c) { return { name: c } }),
+          roam: true,
+          draggable: true,
+          force: {
+            repulsion: 300,
+            edgeLength: [80, 150],
+            gravity: 0.1
+          },
+          label: {
+            show: true,
+            position: 'right',
+            fontSize: 12
+          },
+          lineStyle: {
+            curveness: 0.1
+          },
+          emphasis: {
+            focus: 'adjacency',
+            lineStyle: { width: 3 }
+          }
+        }]
+      }
+      this.graphChart.setOption(option)
+      var self = this
+      this.graphChart.on('click', function (params) {
+        if (params.dataType === 'node' && params.data.note_ids && params.data.note_ids.length > 0) {
+          var page = params.data.note_ids[0]
+          var result = self.job.results.find(function (r) { return r.page === page && r.status === 'done' })
+          if (result && result.note_id) {
+            self.$router.push('/note/' + result.note_id)
+            self.graphDialogVisible = false
+          }
+        }
+      })
     },
     async startReviewMaterial() {
       this.reviewLoading = true

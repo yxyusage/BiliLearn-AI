@@ -380,3 +380,66 @@ def delete_job(job_id: int, db: Session = Depends(get_db)):
     db.delete(job)
     db.commit()
     return {"ok": True}
+
+
+def _knowledge_graph_prompt(course_title: str, notes_text: str) -> str:
+    return f"""你是课程知识图谱构建专家。请分析以下课程《{course_title}》的各集笔记，提取核心知识点并构建关联图谱。
+
+【输出要求】
+只输出一个 JSON 对象，格式如下：
+{{
+  "nodes": [
+    {{"id": "1", "name": "知识点名称", "category": "类别", "note_ids": [1, 2], "desc": "一句话说明"}}
+  ],
+  "links": [
+    {{"source": "1", "target": "2", "relation": "prerequisite|related|contains"}}
+  ]
+}}
+
+【规则】
+1. 提取 15-30 个核心知识点，不要太多也不要太少。
+2. category 分为：基础概念、核心原理、关键技术、应用场景、易错点。
+3. note_ids 标注该知识点出现在哪几集笔记中（用笔记的 page 字段）。
+4. relation 类型：
+   - prerequisite：前置知识（学 B 之前必须先学 A）
+   - related：相关（两个知识点有关联）
+   - contains：包含（A 包含 B）
+5. 每个知识点至少有一条关联，孤立节点不要。
+6. 知识点名称要简洁准确，不超过 10 个字。
+7. desc 用一句话说明该知识点的核心内容。
+
+【笔记内容】
+{notes_text}
+
+请只输出 JSON，不要输出其他内容。"""
+
+
+@router.post("/{job_id}/knowledge-graph")
+def generate_knowledge_graph(job_id: int, db: Session = Depends(get_db)):
+    job = db.query(CollectionJob).filter(CollectionJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="合集任务不存在")
+    results = json.loads(job.result_json or "[]")
+    note_ids = [r.get("note_id") for r in results if r.get("status") == "done" and r.get("note_id")]
+    if not note_ids:
+        raise HTTPException(status_code=400, detail="该合集暂无已完成的笔记")
+    notes = db.query(Note).filter(Note.id.in_(note_ids)).all()
+    notes_text_parts = []
+    for note in notes:
+        summary = note.summary or ""
+        title = note.title or ""
+        notes_text_parts.append(f"第{note.page}集：{title}\n摘要：{summary[:500]}")
+    notes_text = "\n\n".join(notes_text_parts)
+    if len(notes_text) > 50000:
+        notes_text = notes_text[:50000]
+    llm_cfg = resolve_llm_config(db)
+    if llm_cfg["provider"] != "ollama" and not llm_cfg["api_key"]:
+        raise HTTPException(status_code=400, detail="尚未配置 API Key")
+    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"])
+    try:
+        result = llm.chat_json(_knowledge_graph_prompt(job.title, notes_text))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="知识图谱生成失败：" + str(exc)) from exc
+    if not isinstance(result, dict) or "nodes" not in result or "links" not in result:
+        raise HTTPException(status_code=502, detail="知识图谱输出格式错误")
+    return {"nodes": result["nodes"], "links": result["links"]}

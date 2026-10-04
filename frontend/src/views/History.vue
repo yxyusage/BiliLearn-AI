@@ -3,7 +3,8 @@
     <el-card shadow="never">
       <div class="history-head">
         <div class="history-filters">
-          <el-select v-model="subjectFilter" size="small" style="width: 130px" @change="load">
+          <el-input v-model="searchKeyword" size="small" placeholder="搜索笔记标题/摘要" style="width: 200px" clearable @input="onSearch" />
+          <el-select v-model="subjectFilter" size="small" style="width: 110px" @change="load">
             <el-option label="全部学科" value="all" />
             <el-option label="通用" value="general" />
             <el-option label="英语" value="english" />
@@ -49,6 +50,18 @@
                 <el-tag type="danger" size="small">失败</el-tag>
               </el-tooltip>
               <el-tag v-else type="info" size="small">待处理</el-tag>
+              <el-dropdown v-if="n.status === 'done'" trigger="click" @command="(cmd) => setLearningStatus(n, cmd)">
+                <el-tag :type="learningTagType(n.learning_status)" size="small" effect="plain" style="cursor:pointer">
+                  {{ learningLabel(n.learning_status) }} ▾
+                </el-tag>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="unlearned">未学</el-dropdown-item>
+                    <el-dropdown-item command="learning">学习中</el-dropdown-item>
+                    <el-dropdown-item command="completed">已完成</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
             </div>
           </div>
           <div class="note-card-actions">
@@ -77,15 +90,23 @@ export default {
       loading: false,
       subjectFilter: 'all',
       statusFilter: 'all',
+      searchKeyword: '',
+      searchTimer: null,
       timer: null
     }
   },
   computed: {
     filtered() {
       var self = this
+      var kw = this.searchKeyword.trim().toLowerCase()
       return this.notes.filter(function (n) {
         if (self.subjectFilter !== 'all' && n.subject !== self.subjectFilter) return false
         if (self.statusFilter !== 'all' && n.status !== self.statusFilter) return false
+        if (kw) {
+          var title = (n.title || '').toLowerCase()
+          var summary = (n.summary || '').toLowerCase()
+          if (title.indexOf(kw) < 0 && summary.indexOf(kw) < 0) return false
+        }
         return true
       })
     }
@@ -102,6 +123,35 @@ export default {
     subjectName(s) {
       var names = { general: '通用', english: '英语', math: '数理', cs: '计算机', liberal: '文科' }
       return names[s] || s
+    },
+    learningLabel(s) {
+      var labels = { unlearned: '未学', learning: '学习中', completed: '已学完' }
+      return labels[s] || '未学'
+    },
+    learningTagType(s) {
+      var types = { unlearned: 'info', learning: 'warning', completed: 'success' }
+      return types[s] || 'info'
+    },
+    onSearch() {
+      if (this.searchTimer) clearTimeout(this.searchTimer)
+      this.searchTimer = setTimeout(async () => {
+        if (this.searchKeyword.trim()) {
+          try {
+            this.notes = await api.get('/notes/search?q=' + encodeURIComponent(this.searchKeyword.trim()) + '&limit=100')
+          } catch (e) { /* 忽略 */ }
+        } else {
+          this.load()
+        }
+      }, 300)
+    },
+    async setLearningStatus(note, status) {
+      try {
+        await api.put('/notes/' + note.id + '/learning-status', { status: status })
+        note.learning_status = status
+        ElMessage.success('已标记为「' + this.learningLabel(status) + '」')
+      } catch (e) {
+        ElMessage.error(e.message)
+      }
     },
     humanize(iso) {
       if (!iso) return ''

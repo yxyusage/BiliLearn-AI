@@ -280,12 +280,54 @@ def list_notes(db: Session = Depends(get_db), limit: int = 50):
             "title": n.title,
             "subject": n.subject,
             "status": n.status,
+            "learning_status": n.learning_status or "unlearned",
             "summary": n.summary,
             "error": n.error,
             "created_at": n.created_at.isoformat() if n.created_at else "",
         }
         for n in notes
     ]
+
+
+@router.get("/search")
+def search_notes(q: str, db: Session = Depends(get_db), limit: int = 50):
+    keyword = f"%{q.strip()}%"
+    notes = (
+        db.query(Note)
+        .filter(
+            (Note.title.like(keyword)) | (Note.summary.like(keyword))
+        )
+        .order_by(Note.created_at.desc())
+        .limit(min(max(limit, 1), 200))
+        .all()
+    )
+    return [
+        {
+            "id": n.id,
+            "bvid": n.bvid,
+            "page": n.page,
+            "title": n.title,
+            "subject": n.subject,
+            "status": n.status,
+            "learning_status": n.learning_status or "unlearned",
+            "summary": n.summary,
+            "created_at": n.created_at.isoformat() if n.created_at else "",
+        }
+        for n in notes
+    ]
+
+
+@router.put("/{note_id}/learning-status")
+def update_learning_status(note_id: int, req: dict, db: Session = Depends(get_db)):
+    note = db.query(Note).filter(Note.id == note_id).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="笔记不存在")
+    status = req.get("status", "unlearned")
+    if status not in ("unlearned", "learning", "completed"):
+        raise HTTPException(status_code=400, detail="无效的学习状态")
+    note.learning_status = status
+    db.commit()
+    return {"id": note.id, "learning_status": note.learning_status}
 
 
 @router.get("/{note_id}/status")

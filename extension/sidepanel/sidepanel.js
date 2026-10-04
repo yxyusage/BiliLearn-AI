@@ -72,6 +72,11 @@
     els.collDetailMeta = $('collDetailMeta');
     els.collDetailProgress = $('collDetailProgress');
     els.collEpisodeList = $('collEpisodeList');
+    els.captureCount = $('captureCount');
+    els.captureEmpty = $('captureEmpty');
+    els.captureGrid = $('captureGrid');
+    els.clearCaptureBtn = $('clearCaptureBtn');
+    els.learningStatusSelectEl = $('learningStatusSelectEl');
     els.fontDec = $('fontDec');
     els.fontInc = $('fontInc');
     els.fontValue = $('fontValue');
@@ -294,6 +299,9 @@
     var detail = state.noteDetail || state.note;
     var noteData = detail.note || {};
     els.noteSummary.textContent = noteData.summary || detail.summary || '暂无摘要';
+    if (els.learningStatusSelectEl) {
+      els.learningStatusSelectEl.value = detail.learning_status || 'unlearned';
+    }
 
     var chapters = noteData.chapters || [];
     var html = '';
@@ -699,6 +707,15 @@
         var filename = sanitizeFilename(title) + '_' + time + '.png';
         var downloadResp = await sendBg({ type: 'downloadImage', dataUrl: resp.data, filename: filename });
         if (downloadResp.ok) {
+          await saveCaptureHistory({
+            filename: filename,
+            dataUrl: resp.data,
+            title: title,
+            time: time,
+            bvid: state.videoInfo ? state.videoInfo.bvid : '',
+            page: state.videoInfo ? state.videoInfo.page : 1,
+            timestamp: Date.now()
+          });
           showToast('📷 截图已保存：' + filename);
         } else {
           showToast('下载失败：' + (downloadResp.error || '未知错误'));
@@ -710,6 +727,80 @@
       showToast('截图失败：' + e.message);
     }
     els.captureBtn.style.opacity = '1';
+  }
+
+  var MAX_CAPTURES = 30;
+
+  function loadCaptureHistory() {
+    return new Promise(function (resolve) {
+      chrome.storage.local.get({ captureHistory: [] }, function (result) {
+        resolve(result.captureHistory || []);
+      });
+    });
+  }
+
+  async function saveCaptureHistory(item) {
+    var list = await loadCaptureHistory();
+    list.unshift(item);
+    if (list.length > MAX_CAPTURES) list = list.slice(0, MAX_CAPTURES);
+    await new Promise(function (resolve) {
+      chrome.storage.local.set({ captureHistory: list }, resolve);
+    });
+    renderCaptureHistory();
+  }
+
+  async function deleteCapture(index) {
+    var list = await loadCaptureHistory();
+    list.splice(index, 1);
+    await new Promise(function (resolve) {
+      chrome.storage.local.set({ captureHistory: list }, resolve);
+    });
+    renderCaptureHistory();
+  }
+
+  async function clearCaptures() {
+    await new Promise(function (resolve) {
+      chrome.storage.local.set({ captureHistory: [] }, resolve);
+    });
+    renderCaptureHistory();
+  }
+
+  async function renderCaptureHistory() {
+    var list = await loadCaptureHistory();
+    els.captureCount.textContent = list.length + ' 张';
+    if (list.length === 0) {
+      els.captureEmpty.style.display = 'block';
+      els.captureGrid.style.display = 'none';
+      return;
+    }
+    els.captureEmpty.style.display = 'none';
+    els.captureGrid.style.display = 'grid';
+    els.captureGrid.innerHTML = list.map(function (item, index) {
+      return '<div class="capture-item" data-index="' + index + '">' +
+        '<img src="' + item.dataUrl + '" alt="' + escapeHtml(item.filename) + '">' +
+        '<div class="capture-item-actions">' +
+          '<button class="capture-action-btn" data-action="view" title="查看大图">🔍</button>' +
+          '<button class="capture-action-btn" data-action="download" title="重新下载">⬇️</button>' +
+          '<button class="capture-action-btn" data-action="delete" title="删除">🗑️</button>' +
+        '</div>' +
+        '<div class="capture-item-info">' +
+          '<div class="capture-item-title">' + escapeHtml(item.title || item.filename) + '</div>' +
+          '<div class="capture-item-time">' + (item.time || '') + ' · ' + new Date(item.timestamp).toLocaleString() + '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  function viewCaptureLarge(dataUrl, filename) {
+    var viewer = document.createElement('div');
+    viewer.className = 'capture-viewer';
+    viewer.innerHTML = '<button class="capture-viewer-close">✕</button><img src="' + dataUrl + '" alt="' + escapeHtml(filename) + '">';
+    viewer.addEventListener('click', function (e) {
+      if (e.target === viewer || e.target.classList.contains('capture-viewer-close')) {
+        document.body.removeChild(viewer);
+      }
+    });
+    document.body.appendChild(viewer);
   }
 
   async function openCollectionDetail(collId, skipPush) {
@@ -836,12 +927,54 @@
         renderQuiz();
       }
     }
+    if (tabName === 'capture') {
+      renderCaptureHistory();
+    }
   }
 
   function initEvents() {
     els.backBtn.addEventListener('click', goBack);
     els.refreshBtn.addEventListener('click', refreshCurrent);
     els.captureBtn.addEventListener('click', captureScreenshot);
+    els.clearCaptureBtn.addEventListener('click', function () {
+      if (confirm('确定清空所有截图历史？')) clearCaptures();
+    });
+    els.captureGrid.addEventListener('click', async function (e) {
+      var item = e.target.closest('.capture-item');
+      if (!item) return;
+      var index = parseInt(item.dataset.index);
+      var list = await loadCaptureHistory();
+      var cap = list[index];
+      if (!cap) return;
+      var action = e.target.closest('.capture-action-btn');
+      if (action) {
+        var act = action.dataset.action;
+        if (act === 'view') viewCaptureLarge(cap.dataUrl, cap.filename);
+        else if (act === 'download') sendBg({ type: 'downloadImage', dataUrl: cap.dataUrl, filename: cap.filename });
+        else if (act === 'delete') deleteCapture(index);
+      } else {
+        viewCaptureLarge(cap.dataUrl, cap.filename);
+      }
+    });
+
+    if (els.learningStatusSelectEl) {
+      els.learningStatusSelectEl.addEventListener('change', async function () {
+        if (!state.note || !state.note.id) return;
+        var status = els.learningStatusSelectEl.value;
+        try {
+          var resp = await sendBg({ type: 'updateLearningStatus', noteId: state.note.id, status: status });
+          if (resp.ok) {
+            if (state.note) state.note.learning_status = status;
+            if (state.noteDetail) state.noteDetail.learning_status = status;
+            showToast('已标记为「' + (status === 'completed' ? '已学完' : status === 'learning' ? '学习中' : '未学') + '」');
+          } else {
+            showToast('更新失败：' + (resp.error || '未知错误'));
+          }
+        } catch (e) {
+          showToast('更新失败：' + e.message);
+        }
+      });
+    }
 
     els.themeToggle.addEventListener('click', function () {
       state.settings.theme = state.settings.theme === 'dark' ? 'light' : 'dark';

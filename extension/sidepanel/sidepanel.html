@@ -39,6 +39,7 @@
       <button class="tab" data-tab="chat">💬 答疑</button>
       <button class="tab" data-tab="quiz">✏️ 题目</button>
       <button class="tab" data-tab="collection">📚 合集</button>
+      <button class="tab" data-tab="capture">📷 截图</button>
     </nav>
 
     <div class="tab-content">
@@ -71,6 +72,14 @@
           </div>
           <div class="note-content" id="noteContent" style="display:none">
             <div class="note-actions">
+              <div class="learning-status-select" id="learningStatusSelect">
+                <span class="ls-label">学习状态：</span>
+                <select class="ls-select" id="learningStatusSelectEl">
+                  <option value="unlearned">未学</option>
+                  <option value="learning">学习中</option>
+                  <option value="completed">已学完</option>
+                </select>
+              </div>
               <button class="btn btn-outline btn-sm" id="regenBtn">🔄 重新生成</button>
             </div>
             <div class="note-summary" id="noteSummary"></div>
@@ -128,6 +137,22 @@
           </div>
           <div class="coll-detail-progress" id="collDetailProgress"></div>
           <div class="coll-episode-list" id="collEpisodeList"></div>
+        </div>
+      </section>
+
+      <section class="tab-pane" id="tab-capture">
+        <div class="capture-container">
+          <div class="capture-header">
+            <span class="capture-title">📷 截图历史</span>
+            <span class="capture-count" id="captureCount">0 张</span>
+            <button class="btn btn-small btn-danger" id="clearCaptureBtn" style="margin-left:auto">清空</button>
+          </div>
+          <div class="capture-empty" id="captureEmpty">
+            <div class="empty-icon">📷</div>
+            <p>暂无截图</p>
+            <p class="empty-desc">点击顶部 📷 按钮截取当前视频画面</p>
+          </div>
+          <div class="capture-grid" id="captureGrid" style="display:none"></div>
         </div>
       </section>
     </div>

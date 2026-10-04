@@ -474,3 +474,28 @@ input:checked + .slider:before { transform: translateX(16px); }
   text-align: center; animation: toastIn .2s ease;
 }
 @keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+.capture-container { padding: 12px; }
+.capture-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.capture-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.capture-count { font-size: 12px; color: var(--text-3); }
+.capture-empty { text-align: center; padding: 40px 20px; }
+.capture-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.capture-item { position: relative; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); cursor: pointer; transition: transform .15s; }
+.capture-item:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+.capture-item img { width: 100%; display: block; aspect-ratio: 16/9; object-fit: cover; }
+.capture-item-info { padding: 6px 8px; background: var(--bg-2); }
+.capture-item-title { font-size: 11px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.capture-item-time { font-size: 10px; color: var(--text-3); margin-top: 2px; }
+.capture-item-actions { position: absolute; top: 4px; right: 4px; display: flex; gap: 4px; opacity: 0; transition: opacity .15s; }
+.capture-item:hover .capture-item-actions { opacity: 1; }
+.capture-action-btn { width: 24px; height: 24px; border-radius: 4px; border: none; background: rgba(0,0,0,.6); color: #fff; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.capture-action-btn:hover { background: rgba(0,0,0,.8); }
+.capture-viewer { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,.85); z-index: 10000; display: flex; align-items: center; justify-content: center; }
+.capture-viewer img { max-width: 90%; max-height: 90%; border-radius: 8px; }
+.capture-viewer-close { position: absolute; top: 20px; right: 20px; width: 36px; height: 36px; border-radius: 50%; border: none; background: rgba(255,255,255,.2); color: #fff; font-size: 18px; cursor: pointer; }
+
+.learning-status-select { display: flex; align-items: center; gap: 6px; }
+.ls-label { font-size: 12px; color: var(--text-3); }
+.ls-select { padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 12px; cursor: pointer; outline: none; }
+.ls-select:focus { border-color: var(--primary); }

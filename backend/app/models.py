@@ -19,6 +19,7 @@ class Note(Base):
     title = Column(String(512), default="")
     subject = Column(String(32), default="general")
     status = Column(String(32), default="pending")  # pending/processing/done/failed
+    learning_status = Column(String(16), default="unlearned")  # unlearned/learning/completed
     error = Column(Text, default="")
     summary = Column(Text, default="")        # 摘要
     batch_id = Column(Integer, default=0)     # 合集批量任务 id（0=单条生成）
