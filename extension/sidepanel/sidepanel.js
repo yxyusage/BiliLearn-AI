@@ -29,7 +29,9 @@
   function initEls() {
     els.backBtn = $('backBtn');
     els.appTitle = $('appTitle');
+    els.captureBtn = $('captureBtn');
     els.refreshBtn = $('refreshBtn');
+    els.toast = $('toast');
     els.videoInfo = $('videoInfo');
     els.themeToggle = $('themeToggle');
     els.openFullBtn = $('openFullBtn');
@@ -659,6 +661,57 @@
     }
   }
 
+  function showToast(message, duration) {
+    els.toast.textContent = message;
+    els.toast.style.display = 'block';
+    clearTimeout(els.toast._timer);
+    els.toast._timer = setTimeout(function () {
+      els.toast.style.display = 'none';
+    }, duration || 2500);
+  }
+
+  function formatTime(seconds) {
+    var h = Math.floor(seconds / 3600);
+    var m = Math.floor((seconds % 3600) / 60);
+    var s = Math.floor(seconds % 60);
+    return (h > 0 ? String(h).padStart(2, '0') + '' : '') +
+      String(m).padStart(2, '0') + String(s).padStart(2, '0');
+  }
+
+  function sanitizeFilename(name) {
+    return String(name || 'video')
+      .replace(/[\\/:*?"<>|]/g, '_')
+      .replace(/\s+/g, '_')
+      .substring(0, 50);
+  }
+
+  async function captureScreenshot() {
+    if (!state.tab) {
+      showToast('请在 B 站视频页面使用截图功能');
+      return;
+    }
+    els.captureBtn.style.opacity = '0.5';
+    try {
+      var resp = await sendContent(state.tab.id, { type: 'captureVideo' });
+      if (resp.ok && resp.data) {
+        var title = state.videoInfo ? state.videoInfo.title : 'video';
+        var time = formatTime(resp.currentTime || 0);
+        var filename = sanitizeFilename(title) + '_' + time + '.png';
+        var downloadResp = await sendBg({ type: 'downloadImage', dataUrl: resp.data, filename: filename });
+        if (downloadResp.ok) {
+          showToast('📷 截图已保存：' + filename);
+        } else {
+          showToast('下载失败：' + (downloadResp.error || '未知错误'));
+        }
+      } else {
+        showToast('截图失败：' + (resp.error || '未知错误'));
+      }
+    } catch (e) {
+      showToast('截图失败：' + e.message);
+    }
+    els.captureBtn.style.opacity = '1';
+  }
+
   async function openCollectionDetail(collId, skipPush) {
     els.collDetailContainer.style.display = 'block';
     els.collListContainer.style.display = 'none';
@@ -788,6 +841,7 @@
   function initEvents() {
     els.backBtn.addEventListener('click', goBack);
     els.refreshBtn.addEventListener('click', refreshCurrent);
+    els.captureBtn.addEventListener('click', captureScreenshot);
 
     els.themeToggle.addEventListener('click', function () {
       state.settings.theme = state.settings.theme === 'dark' ? 'light' : 'dark';

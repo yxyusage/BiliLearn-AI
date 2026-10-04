@@ -53,6 +53,24 @@
     return video ? video.currentTime : 0;
   }
 
+  function captureVideoFrame() {
+    var video = getVideoElement();
+    if (!video) return { ok: false, error: '未找到视频元素' };
+    if (video.readyState < 2) return { ok: false, error: '视频尚未加载' };
+    if (!video.videoWidth || !video.videoHeight) return { ok: false, error: '视频尺寸无效' };
+    var canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    var ctx = canvas.getContext('2d');
+    try {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      var dataUrl = canvas.toDataURL('image/png');
+      return { ok: true, data: dataUrl, currentTime: video.currentTime, width: video.videoWidth, height: video.videoHeight };
+    } catch (e) {
+      return { ok: false, error: '截图失败（视频可能受保护）：' + e.message };
+    }
+  }
+
   var lastTime = 0;
   var timeListeners = [];
 
@@ -110,6 +128,9 @@
         break;
       case 'getCurrentTime':
         sendResponse({ ok: true, data: getCurrentTime() });
+        break;
+      case 'captureVideo':
+        sendResponse(captureVideoFrame());
         break;
       default:
         sendResponse({ ok: false, error: '未知消息类型' });

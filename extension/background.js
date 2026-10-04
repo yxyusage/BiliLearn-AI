@@ -90,6 +90,22 @@ async function chatNote(noteId, message, history) {
   });
 }
 
+function downloadImage(dataUrl, filename) {
+  return new Promise(function (resolve, reject) {
+    chrome.downloads.download({
+      url: dataUrl,
+      filename: filename,
+      saveAs: false
+    }, function (downloadId) {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+      } else {
+        resolve(downloadId);
+      }
+    });
+  });
+}
+
 chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   (async function () {
     try {
@@ -136,6 +152,11 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         }
         case 'generateQuiz': {
           const result = await generateQuiz(msg.noteId);
+          sendResponse({ ok: true, data: result });
+          break;
+        }
+        case 'downloadImage': {
+          const result = await downloadImage(msg.dataUrl, msg.filename);
           sendResponse({ ok: true, data: result });
           break;
         }
