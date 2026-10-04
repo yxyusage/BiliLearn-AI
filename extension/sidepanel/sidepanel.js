@@ -525,7 +525,11 @@
 
   async function sendChat() {
     var text = els.chatInput.value.trim();
-    if (!text || !state.note) return;
+    if (!text) return;
+    if (!state.note) {
+      appendChatMsg('ai', '⚠️ 请先在「笔记」标签中打开一篇笔记，再进行提问');
+      return;
+    }
     appendChatMsg('user', escapeHtml(text).replace(/\n/g, '<br>'));
     els.chatInput.value = '';
     els.chatSend.disabled = true;
@@ -720,7 +724,11 @@
   }
 
   async function generateQuiz() {
-    if (!state.note || !state.note.id) return;
+    if (!state.note || !state.note.id) {
+      els.quizEmpty.style.display = 'block';
+      els.quizEmpty.querySelector('.empty-desc').textContent = '请先在「笔记」标签中打开一篇笔记';
+      return;
+    }
     els.generateQuizBtn.disabled = true;
     els.generateQuizBtn.innerHTML = '<span>⏳ 生成中...</span>';
     els.quizEmpty.style.display = 'none';
@@ -746,8 +754,6 @@
 
   function switchTab(tabName) {
     state.navStack = [];
-    state.note = null;
-    state.noteDetail = null;
     state.currentCollection = null;
     els.tabs.forEach(function (t) { t.classList.toggle('active', t.dataset.tab === tabName); });
     els.tabPanes.forEach(function (p) { p.classList.toggle('active', p.id === 'tab-' + tabName); });
@@ -760,7 +766,23 @@
       setView('note-list');
       checkNote();
     }
-    if (tabName === 'quiz' && state.noteDetail) renderQuiz();
+    if (tabName === 'chat') {
+      if (!state.note) {
+        els.chatMessages.innerHTML = '<div class="chat-empty"><div class="ce-icon">💬</div><p>请先打开一篇笔记</p><p class="ce-desc">在「笔记」标签中打开笔记后，即可基于笔记内容提问</p></div>';
+      }
+    }
+    if (tabName === 'quiz') {
+      if (!state.note) {
+        els.quizEmpty.style.display = 'block';
+        els.quizList.style.display = 'none';
+        els.quizLoading.style.display = 'none';
+        els.quizEmpty.querySelector('.empty-desc').textContent = '请先在「笔记」标签中打开一篇笔记';
+        els.generateQuizBtn.style.display = 'none';
+      } else {
+        els.generateQuizBtn.style.display = '';
+        renderQuiz();
+      }
+    }
   }
 
   function initEvents() {
