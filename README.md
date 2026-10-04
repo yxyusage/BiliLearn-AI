@@ -40,7 +40,43 @@ cd BiliLearn-AI
 
 ---
 
-## 快速开始（小白版）
+## 图形化启动器（推荐）
+
+v1.7.0 起提供图形化启动器，不用再看黑窗口。
+
+### Windows 用户
+
+1. 下载便携版：https://github.com/yxyusage/BiliLearn-AI/releases/download/v1.7.0/BiliLearn-AI-v1.7.0-portable.zip
+2. 解压到任意目录
+3. 双击 `BiliLearn-AI-Launcher.exe`
+4. 点「启动服务」，等待进度条完成
+5. 浏览器自动打开
+
+启动器功能：
+- 一键启动/停止服务，实时进度显示
+- API Key、模型、端口配置（不用进网页找设置）
+- 实时日志查看
+- 数据目录一键打开
+- GitHub 版本检查更新
+- 系统托盘（关闭窗口最小化到托盘，不占任务栏）
+
+> 如果启动器无法使用，可以双击 `start.bat` 用命令行方式启动。
+
+### Mac 用户
+
+Mac 版启动器需要在本地打包（因为我没有 Mac 环境）：
+
+```bash
+cd launcher
+chmod +x build_mac.sh
+./build_mac.sh
+```
+
+打包完成后，`dist/BiliLearn-AI-Launcher.app` 就是 Mac 版启动器。
+
+---
+
+## 快速开始（命令行方式）
 
 ### 第一步：安装环境
 
