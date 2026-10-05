@@ -107,19 +107,27 @@ class ServiceManager:
         self.set_status = status_callback
         self.process = None
         self.running = False
+        self.starting = False
+        self._cancel_requested = False
 
     def check_python(self):
         python = find_system_python()
         if not python:
-            return False
+            return False, "未找到 Python"
         try:
             result = subprocess.run(
-                [python, "--version"],
-                capture_output=True, text=True, timeout=10
+                [python, "-c", "import sys; print('%d.%d.%d' % sys.version_info[:3])"],
+                capture_output=True, text=True, timeout=10,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
             )
-            return result.returncode == 0
-        except Exception:
-            return False
+            if result.returncode != 0:
+                return False, "Python 无法正常运行"
+            version = tuple(int(x) for x in result.stdout.strip().split("."))
+            if version < (3, 10):
+                return False, f"Python 版本过低（当前 {result.stdout.strip()}），需要 3.10 或更高版本"
+            return True, result.stdout.strip()
+        except Exception as e:
+            return False, str(e)
 
     def check_venv(self):
         return get_python_executable().exists()
@@ -133,7 +141,8 @@ class ServiceManager:
         try:
             subprocess.run(
                 [python, "-m", "venv", str(VENV_DIR)],
-                check=True, capture_output=True, text=True
+                check=True, capture_output=True, text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
             )
             self.log("虚拟环境创建完成")
             return True
@@ -169,7 +178,8 @@ class ServiceManager:
                      "--trusted-host", "pypi.tuna.tsinghua.edu.cn",
                      "--trusted-host", "mirrors.aliyun.com",
                      "--trusted-host", "pypi.org"],
-                    capture_output=True, text=True, timeout=600
+                    capture_output=True, text=True, timeout=600,
+                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
                 )
                 if result.returncode == 0:
                     self.log(f"  {name} 安装成功")
@@ -195,6 +205,7 @@ class ServiceManager:
             self.log("未检测到 Node.js/npm，无法构建前端页面。请先安装 Node 18+")
             return False
         use_shell = sys.platform == "win32"
+        no_window = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
         self.set_status("构建前端页面...", COLORS["warning"])
         if not (FRONTEND_DIR / "node_modules").exists():
             self.log("安装前端依赖（npm install，首次较慢）...")
@@ -202,7 +213,8 @@ class ServiceManager:
                 r = subprocess.run(
                     [npm, "install", "--no-audit", "--no-fund"],
                     cwd=str(FRONTEND_DIR), shell=use_shell,
-                    capture_output=True, text=True, timeout=1800
+                    capture_output=True, text=True, timeout=1800,
+                    creationflags=no_window
                 )
             except subprocess.TimeoutExpired:
                 self.log("npm install 超时")
@@ -215,7 +227,8 @@ class ServiceManager:
             r = subprocess.run(
                 [npm, "run", "build"],
                 cwd=str(FRONTEND_DIR), shell=use_shell,
-                capture_output=True, text=True, timeout=1800
+                capture_output=True, text=True, timeout=1800,
+                creationflags=no_window
             )
         except subprocess.TimeoutExpired:
             self.log("npm run build 超时")
@@ -226,32 +239,73 @@ class ServiceManager:
         return dist_index.exists()
 
     def start(self, port, config):
-        if self.running:
+        if self.running or self.starting:
             return
 
+        self.starting = True
+        self._cancel_requested = False
         self.set_status("检查环境...", COLORS["warning"])
 
-        if not self.check_python():
-            self.log("错误：未检测到 Python，请先安装 Python 3.10+")
+        if not BACKEND_DIR.exists() or not (BACKEND_DIR / "requirements.txt").exists():
+            self.log("=" * 50)
+            self.log("错误：找不到后端文件！")
+            self.log("")
+            self.log("启动器 exe 必须和以下文件夹放在同一目录：")
+            self.log("  - backend/")
+            self.log("  - frontend/")
+            self.log("")
+            self.log("请确认你下载的是完整的便携版 ZIP，")
+            self.log("并且解压后所有文件都在同一个文件夹里。")
+            self.log("=" * 50)
             self.set_status("启动失败", COLORS["error"])
+            self.starting = False
+            return
+
+        py_ok, py_info = self.check_python()
+        if not py_ok:
+            self.log(f"错误：{py_info}")
+            self.log("请安装 Python 3.10 或更高版本")
+            self.log("下载地址: https://www.python.org/downloads/")
+            self.set_status("启动失败", COLORS["error"])
+            self.starting = False
+            return
+        self.log(f"Python {py_info} 检测通过")
+
+        if self._cancel_requested:
+            self.starting = False
             return
 
         if not self.check_venv():
             self.set_status("创建虚拟环境...", COLORS["warning"])
             if not self.create_venv():
                 self.set_status("启动失败", COLORS["error"])
+                self.starting = False
                 return
+
+        if self._cancel_requested:
+            self.starting = False
+            return
 
         self.set_status("安装依赖...", COLORS["warning"])
         if not self.install_dependencies():
             self.log("依赖安装失败，请检查网络连接")
             self.set_status("启动失败", COLORS["error"])
+            self.starting = False
             return
 
-        self.set_status("构建前端...", COLORS["warning"])
+        if self._cancel_requested:
+            self.starting = False
+            return
+
+        self.set_status("检查前端...", COLORS["warning"])
         if not self.build_frontend_if_needed():
             self.log("前端构建失败，页面将无法访问")
             self.set_status("启动失败", COLORS["error"])
+            self.starting = False
+            return
+
+        if self._cancel_requested:
+            self.starting = False
             return
 
         self.set_status("启动服务...", COLORS["warning"])
@@ -278,6 +332,7 @@ class ServiceManager:
                 text=True, bufsize=1, encoding="utf-8", errors="replace"
             )
             self.running = True
+            self.starting = False
             self.set_status("运行中", COLORS["success"])
             self.log(f"服务已启动: http://localhost:{port}")
 
@@ -291,6 +346,7 @@ class ServiceManager:
         except Exception as e:
             self.log(f"启动服务失败: {e}")
             self.set_status("启动失败", COLORS["error"])
+            self.starting = False
 
     def _read_output(self):
         if not self.process:
@@ -312,6 +368,12 @@ class ServiceManager:
         self.log("服务已停止")
 
     def stop(self):
+        if self.starting and not self.running:
+            self._cancel_requested = True
+            self.log("正在取消启动...")
+            self.starting = False
+            self.set_status("已取消", COLORS["text_dim"])
+            return
         if self.process and self.running:
             self.log("停止服务...")
             self.process.terminate()
@@ -507,16 +569,29 @@ class BiliLearnLauncher(ctk.CTk):
     def _toggle_service(self):
         if self.service.running:
             self.service.stop()
-            self.start_btn.configure(text="启动服务", fg_color=COLORS["accent"])
+            self.start_btn.configure(text="启动服务", fg_color=COLORS["accent"], state="normal")
+            self.progress.set(0)
+        elif self.service.starting:
+            self.service.stop()
+            self.start_btn.configure(text="启动服务", fg_color=COLORS["accent"], state="normal")
             self.progress.set(0)
         else:
-            self.start_btn.configure(text="停止服务", fg_color=COLORS["error"])
-            self.progress.set(0.3)
+            self.start_btn.configure(text="启动中，点击取消", fg_color=COLORS["warning"])
+            self.progress.set(0.1)
             threading.Thread(
-                target=self.service.start,
+                target=self._start_and_reset_btn,
                 args=(self.config.get("port", DEFAULT_PORT), self.config),
                 daemon=True
             ).start()
+
+    def _start_and_reset_btn(self, port, config):
+        self.service.start(port, config)
+        if not self.service.running:
+            self.start_btn.configure(text="启动服务", fg_color=COLORS["accent"], state="normal")
+            self.progress.set(0)
+        else:
+            self.start_btn.configure(text="停止服务", fg_color=COLORS["error"], state="normal")
+            self.progress.set(1)
 
     def _set_status(self, text, color):
         self.status_label.configure(text=text, text_color=color)
