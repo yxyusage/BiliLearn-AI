@@ -220,7 +220,7 @@ BiliLearn-AI/
 
 | 供应商 | Key 申请 | 默认模型 | 说明 |
 | --- | --- | --- | --- |
-| DeepSeek | platform.deepseek.com | deepseek-v4-pro | 综合成本低，推荐 |
+| DeepSeek | platform.deepseek.com | deepseek-chat | 综合成本低，推荐 |
 | Kimi | platform.moonshot.cn | kimi-k2.6 | 上下文窗口大，适合长视频 |
 | 通义千问 | 阿里云百炼 | qwen-plus | 支持视觉模型 |
 | Ollama | 本地运行，无需 Key | qwen2.5:7b | 完全离线 |

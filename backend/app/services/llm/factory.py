@@ -9,8 +9,8 @@ PROVIDERS: Dict[str, Dict[str, Any]] = {
     "deepseek": {
         "name": "DeepSeek",
         "base_url": "https://api.deepseek.com/v1",
-        "default_model": "deepseek-v4-pro",
-        "vision_model": "deepseek-flash",
+        "default_model": "deepseek-chat",
+        "vision_model": "",
         "kind": "openai",
         "need_key": True,
         "key_url": "https://platform.deepseek.com/api_keys",
