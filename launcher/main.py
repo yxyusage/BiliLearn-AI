@@ -2,12 +2,14 @@ import os
 import sys
 import json
 import time
+import socket
 import shutil
 import threading
 import subprocess
 import webbrowser
 from pathlib import Path
 from datetime import datetime
+from urllib.parse import urlparse
 
 import customtkinter as ctk
 import requests
@@ -29,6 +31,34 @@ FRONTEND_DIR = APP_DIR / "frontend"
 # 真实数据目录是 backend/data（与后端 config.DATA_DIR 一致）
 DATA_DIR = BACKEND_DIR / "data"
 REQUIREMENTS_STAMP = VENV_DIR / ".requirements.stamp"
+
+PROXY_KEYS = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy")
+
+
+def _proxy_alive(proxy_url, timeout=1.5):
+    try:
+        parsed = urlparse(proxy_url)
+        host = parsed.hostname
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        if not host:
+            return False
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
+def build_subprocess_env():
+    """返回子进程环境变量。代理可用则保留，失效代理自动移除。"""
+    env = os.environ.copy()
+    proxy = env.get("HTTPS_PROXY") or env.get("https_proxy") or env.get("HTTP_PROXY") or env.get("http_proxy")
+    if proxy:
+        if _proxy_alive(proxy):
+            return env, True
+        for key in PROXY_KEYS:
+            env.pop(key, None)
+        return env, False
+    return env, None
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -138,10 +168,11 @@ class ServiceManager:
             self.log("未找到系统 Python，无法创建虚拟环境")
             return False
         self.log("创建虚拟环境...")
+        env, proxy_state = build_subprocess_env()
         try:
             subprocess.run(
                 [python, "-m", "venv", str(VENV_DIR)],
-                check=True, capture_output=True, text=True,
+                check=True, capture_output=True, text=True, env=env,
                 creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
             )
             self.log("虚拟环境创建完成")
@@ -161,24 +192,36 @@ class ServiceManager:
             self.log("依赖已是最新，跳过安装")
             return True
         self.log("安装 Python 依赖...")
+
+        env, proxy_state = build_subprocess_env()
+        if proxy_state is False:
+            self.log("检测到系统代理不可用，已自动绕过代理直连")
+        elif proxy_state is True:
+            self.log("使用系统代理")
+
         pip = str(get_pip_executable())
         req = str(BACKEND_DIR / "requirements.txt")
 
         mirrors = [
-            ("清华镜像", "https://pypi.tuna.tsinghua.edu.cn/simple"),
             ("阿里云镜像", "https://mirrors.aliyun.com/pypi/simple/"),
+            ("清华镜像", "https://pypi.tuna.tsinghua.edu.cn/simple"),
             ("官方 PyPI", "https://pypi.org/simple/"),
         ]
 
         for name, url in mirrors:
             self.log(f"  尝试 {name}...")
+            if self._cancel_requested:
+                return False
             try:
                 result = subprocess.run(
                     [pip, "install", "-r", req, "-i", url,
+                     "--disable-pip-version-check",
+                     "--default-timeout=20",
+                     "--retries", "2",
                      "--trusted-host", "pypi.tuna.tsinghua.edu.cn",
                      "--trusted-host", "mirrors.aliyun.com",
                      "--trusted-host", "pypi.org"],
-                    capture_output=True, text=True, timeout=600,
+                    capture_output=True, text=True, timeout=600, env=env,
                     creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
                 )
                 if result.returncode == 0:
@@ -188,7 +231,8 @@ class ServiceManager:
                     except Exception:
                         pass
                     return True
-                self.log(f"  {name} 失败: {result.stderr[-200:]}")
+                detail = (result.stderr or result.stdout or "").strip()
+                self.log(f"  {name} 失败: {detail[-200:]}")
             except subprocess.TimeoutExpired:
                 self.log(f"  {name} 超时")
             except Exception as e:
@@ -206,6 +250,7 @@ class ServiceManager:
             return False
         use_shell = sys.platform == "win32"
         no_window = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        fe_env, _ = build_subprocess_env()
         self.set_status("构建前端页面...", COLORS["warning"])
         if not (FRONTEND_DIR / "node_modules").exists():
             self.log("安装前端依赖（npm install，首次较慢）...")
@@ -213,7 +258,7 @@ class ServiceManager:
                 r = subprocess.run(
                     [npm, "install", "--no-audit", "--no-fund"],
                     cwd=str(FRONTEND_DIR), shell=use_shell,
-                    capture_output=True, text=True, timeout=1800,
+                    capture_output=True, text=True, timeout=1800, env=fe_env,
                     creationflags=no_window
                 )
             except subprocess.TimeoutExpired:
@@ -227,7 +272,7 @@ class ServiceManager:
             r = subprocess.run(
                 [npm, "run", "build"],
                 cwd=str(FRONTEND_DIR), shell=use_shell,
-                capture_output=True, text=True, timeout=1800,
+                capture_output=True, text=True, timeout=1800, env=fe_env,
                 creationflags=no_window
             )
         except subprocess.TimeoutExpired:
@@ -312,7 +357,7 @@ class ServiceManager:
         self.log(f"启动后端服务 (端口 {port})...")
 
         # 后端读取的是 BILI_ 前缀的环境变量（见 backend/app/config.py）
-        env = os.environ.copy()
+        env, _ = build_subprocess_env()
         env["PYTHONUNBUFFERED"] = "1"
         if config.get("api_key"):
             env["BILI_DEEPSEEK_API_KEY"] = config["api_key"]
