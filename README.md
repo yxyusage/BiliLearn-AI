@@ -116,8 +116,9 @@ API Key 仅保存在本地数据库中。
 > 完整录屏：[docs/images/sidepanel.mp4](docs/images/sidepanel.mp4)
 
 1. 打开 Chrome 或 Edge，地址栏输入 `chrome://extensions/`（Edge 为 `edge://extensions/`）
-2. 打开右上角「开发者模式」
-3. 点击「加载已解压的扩展程序」，选择项目下的 `extension/` 目录
+2. 目前edge浏览器上的插件还有些bug，推进使用Chrome
+3. 打开右上角「开发者模式」
+4. 点击「加载已解压的扩展程序」，选择项目下的 `extension/` 目录
 
 使用前确保后端服务已启动。侧边栏包含笔记、答疑、题目、合集和截图五个面板。
 
