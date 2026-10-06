@@ -94,6 +94,9 @@ def load_config():
             default.update(saved)
         except Exception:
             pass
+    # 迁移旧配置里保存的非官方模型名
+    if default.get("model") in ("", "deepseek-v4-pro"):
+        default["model"] = "deepseek-chat"
     return default
 
 
@@ -441,8 +444,9 @@ class BiliLearnLauncher(ctk.CTk):
         self.tray_icon = None
 
         self.title(f"{APP_NAME} 启动器 v{VERSION}")
-        self.geometry("520x680")
-        self.resizable(False, False)
+        self.geometry("460x560")
+        self.minsize(420, 500)
+        self.resizable(True, True)
         self.configure(fg_color=COLORS["bg"])
         # 关闭窗口时按设置最小化到托盘
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -554,12 +558,12 @@ class BiliLearnLauncher(ctk.CTk):
         self.status_label.grid(row=0, column=0, pady=(24, 8))
 
         self.progress = ctk.CTkProgressBar(
-            card, width=400, height=8,
+            card, width=360, height=8,
             progress_color=COLORS["accent"],
             fg_color=COLORS["bg_input"]
         )
         self.progress.set(0)
-        self.progress.grid(row=1, column=0, padx=30, pady=(0, 16))
+        self.progress.grid(row=1, column=0, padx=30, pady=(0, 16), sticky="ew")
 
         self.start_btn = ctk.CTkButton(
             card, text="启动服务",
@@ -642,8 +646,14 @@ class BiliLearnLauncher(ctk.CTk):
         self.status_label.configure(text=text, text_color=color)
         if text == "运行中":
             self.progress.set(1)
-        elif text == "已停止":
+        elif text in ("已停止", "已取消"):
             self.progress.set(0)
+            try:
+                self.start_btn.configure(
+                    text="启动服务", fg_color=COLORS["accent"], state="normal"
+                )
+            except Exception:
+                pass
         else:
             self.progress.set(0.5)
 
