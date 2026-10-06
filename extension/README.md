@@ -2,6 +2,12 @@
 
 在 B 站看视频时，通过右侧侧边栏一键生成并浏览 AI 结构化笔记，支持时间戳跳转、完整知识点浏览、字体/主题自定义。
 
+## 演示
+
+![侧边栏演示](../docs/images/sidepanel.gif)
+
+> 完整录屏：[../docs/images/sidepanel.mp4](../docs/images/sidepanel.mp4)
+
 ## 功能
 
 - 🎬 自动识别当前 B 站视频（BV号、分P、标题）

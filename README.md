@@ -8,6 +8,22 @@
 
 ---
 
+## 界面预览
+
+| 主界面 | 合集管理 |
+| :---: | :---: |
+| ![主界面](docs/images/home.png) | ![合集管理](docs/images/collections.png) |
+
+| 学习数据 | 收藏夹导入 |
+| :---: | :---: |
+| ![学习数据](docs/images/dashboard.png) | ![收藏夹导入](docs/images/favorites.png) |
+
+| 设置 | 手机访问 |
+| :---: | :---: |
+| ![设置](docs/images/settings.png) | ![手机端](docs/images/mobile.png) |
+
+---
+
 ## 功能
 
 **笔记生成**
@@ -94,6 +110,10 @@ API Key 仅保存在本地数据库中。
 ## 浏览器扩展
 
 扩展可在 B 站页面内以侧边栏完成笔记生成与浏览，无需切换标签页。
+
+![侧边栏演示](docs/images/sidepanel.gif)
+
+> 完整录屏：[docs/images/sidepanel.mp4](docs/images/sidepanel.mp4)
 
 1. 打开 Chrome 或 Edge，地址栏输入 `chrome://extensions/`（Edge 为 `edge://extensions/`）
 2. 打开右上角「开发者模式」
