@@ -17,6 +17,8 @@ launcher/dist/
 launcher/launcher_config.json
 # 手动放到项目根目录的启动器（Release 下载/本地打包，不入库）
 /BiliLearn-AI-Launcher.exe
+# 便携版发布包（由 launcher/build_portable.ps1 生成，作为 Release 附件上传）
+/BiliLearn-AI-*-portable.zip
 
 # 数据与密钥（密钥仅保存在本地，不入库）
 backend/data/
