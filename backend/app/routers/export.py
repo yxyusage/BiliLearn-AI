@@ -1,15 +1,15 @@
 """导出接口：Markdown / PDF / Anki 卡片。"""
 import json
+from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
-from ..config import DATA_DIR
 from ..database import get_db
 from ..models import Note
-from ..services import note_generator
+from ..services import note_generator, storage
 from ..services.export import (
     build_anki_apkg,
     build_note_docx,
@@ -44,7 +44,7 @@ def _load_frames(note: Note) -> dict:
         kfs = json.loads(note.keyframes)
     except Exception:
         return {}
-    frames_dir = DATA_DIR / "notes" / (str(note.id) + "_keyframes")
+    frames_dir = storage.frames_dir(note.id, "keyframes")
     out = {}
     for k in kfs:
         if not isinstance(k, dict):
@@ -73,8 +73,11 @@ def _note_payload(note: Note):
             words = json.loads(note.words)
         except Exception:
             words = None
+    is_local = (getattr(note, "source", "") or "bilibili") == "local"
+    local_path = getattr(note, "local_path", "") or ""
     meta = {
-        "bvid": note.bvid,
+        "bvid": "" if is_local else note.bvid,
+        "local_name": Path(local_path).name if is_local and local_path else "",
         "page": note.page,
         "subject_name": SUBJECTS.get(note.subject, note.subject),
         "created_at": note.created_at.isoformat() if note.created_at else "",

@@ -43,6 +43,7 @@
             <div class="note-card-title">{{ n.title }}</div>
             <div class="note-card-meta">
               <span>{{ subjectName(n.subject) }}</span>
+              <el-tag v-if="n.source === 'local'" size="small" effect="plain" type="success">本地视频</el-tag>
               <span>{{ humanize(n.created_at) }}</span>
               <el-tag v-if="n.status === 'done'" type="success" size="small">已完成</el-tag>
               <el-tag v-else-if="n.status === 'processing'" type="warning" size="small">生成中</el-tag>
@@ -188,12 +189,25 @@ export default {
     },
     async retry(row) {
       try {
-        var res = await api.post('/notes/generate', {
-          bvid: row.bvid,
-          page: row.page || 1,
-          subject: row.subject || 'general',
-          title: row.title || ''
-        })
+        var res
+        if (row.source === 'local') {
+          if (!row.local_path) {
+            ElMessage.error('这条笔记没有记录本地文件路径，请回首页重新选择文件')
+            return
+          }
+          res = await api.post('/local/generate', {
+            path: row.local_path,
+            subject: row.subject || 'general',
+            title: row.title || ''
+          })
+        } else {
+          res = await api.post('/notes/generate', {
+            bvid: row.bvid,
+            page: row.page || 1,
+            subject: row.subject || 'general',
+            title: row.title || ''
+          })
+        }
         ElMessage.success('已重新开始生成')
         this.$router.push('/note/' + res.id)
       } catch (e) {

@@ -59,6 +59,13 @@ def run_migrations() -> None:
         if note_cols and "learning_status" not in note_cols:
             conn.execute(text("ALTER TABLE notes ADD COLUMN learning_status TEXT DEFAULT 'unlearned'"))
             conn.commit()
+        # v1.8.0：notes.source / local_path 本地视频笔记
+        if note_cols and "source" not in note_cols:
+            conn.execute(text("ALTER TABLE notes ADD COLUMN source VARCHAR(16) DEFAULT 'bilibili'"))
+            conn.commit()
+        if note_cols and "local_path" not in note_cols:
+            conn.execute(text("ALTER TABLE notes ADD COLUMN local_path TEXT DEFAULT ''"))
+            conn.commit()
         rp_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(review_plan)"))]
         for col, ddl in (
             ("repetitions", "ALTER TABLE review_plan ADD COLUMN repetitions INTEGER DEFAULT 0"),

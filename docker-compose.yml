@@ -5,10 +5,12 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # 持久化 SQLite 数据库与导出文件
-      - ./data:/app/backend/data
+      # 持久化 SQLite 数据库、Markdown 笔记与关键帧截图
+      - ./data:/app/data
     environment:
-      - BILI_DATABASE_URL=sqlite:////app/backend/data/bililearn.db
+      # 容器内固定把数据目录指向挂载卷（桌面版默认在 ~/BiliLearn-AI）
+      - BILI_DATA_DIR=/app/data
+      - BILI_DATABASE_URL=sqlite:////app/data/bililearn.db
       - BILI_FRONTEND_DIST=/app/frontend-dist
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]

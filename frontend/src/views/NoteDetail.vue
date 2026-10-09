@@ -65,9 +65,18 @@
       <div ref="splitLayout" class="layout" :class="[layoutMode, { dragging: dragging }]" :style="{ '--vw': layoutMode === 'split' ? leftWidth + '%' : '0%' }">
         <div class="video-panel" :style="videoPanelStyle">
           <div class="sticky-video">
-            <VideoPlayer ref="player" :bvid="bvid" :page="page" />
+            <LocalVideoPlayer
+              v-if="isLocal"
+              ref="player"
+              :src="localStreamUrl"
+              :name="localName"
+              :available="localAvailable"
+            />
+            <VideoPlayer v-else ref="player" :bvid="bvid" :page="page" />
             <div class="meta-line">
-              <el-tag size="small" type="info" effect="plain">{{ bvid }}</el-tag>
+              <el-tag size="small" :type="isLocal ? 'success' : 'info'" effect="plain">
+                {{ isLocal ? '本地视频' : bvid }}
+              </el-tag>
               <span class="note-title">{{ title }}</span>
               <el-dropdown v-if="status === 'done'" trigger="click" @command="setLearningStatus">
                 <el-tag :type="learningTagType(learningStatus)" size="small" effect="plain" style="cursor:pointer">
@@ -145,13 +154,6 @@
                     🖼 提取关键帧截图（嵌入笔记与 Word/PDF 导出）
                   </el-button>
                   <span class="gen-tip">按章节时间戳抽帧，不调用视觉模型</span>
-                </div>
-
-                <div v-if="!quizQuestions.length" class="quiz-entry">
-                  <el-button size="small" type="primary" :loading="quizGenerating" @click="generateQuiz">
-                    ✨ 生成本课自测题（嵌入各章节）
-                  </el-button>
-                  <span class="gen-tip">单选/判断/填空即时判分，计算题 AI 批改</span>
                 </div>
 
                 <div class="note-flex">
@@ -255,37 +257,40 @@
                       <div v-if="ch.summary" class="chapter-summary">
                         <span class="cs-label">本章小结：</span><LatexText :text="ch.summary" markdown />
                       </div>
-
-                      <div v-if="chapterQuestions[ci] && chapterQuestions[ci].length" class="chapter-quiz">
-                        <div class="chapter-quiz-head">📝 本章自测（{{ chapterQuestions[ci].length }} 题）</div>
-                        <QuizCard
-                          v-for="q in chapterQuestions[ci]"
-                          :key="q.index"
-                          :q="q"
-                          :index="q.index"
-                          :note-id="noteId"
-                          :show-variant="variantEnabled"
-                          @jump="jump"
-                          @answered="loadWrong"
-                          @variant="onVariant"
-                        />
-                      </div>
-                    </div>
-                    <div v-if="unmatchedQuestions.length" class="chapter-quiz">
-                      <div class="chapter-quiz-head">📝 综合自测（{{ unmatchedQuestions.length }} 题）</div>
-                      <QuizCard
-                        v-for="q in unmatchedQuestions"
-                        :key="q.index"
-                        :q="q"
-                        :index="q.index"
-                        :note-id="noteId"
-                        :show-variant="variantEnabled"
-                        @jump="jump"
-                        @answered="loadWrong"
-                        @variant="onVariant"
-                      />
                     </div>
                   </div>
+                </div>
+              </el-tab-pane>
+
+              <!-- 题目：独立成页，不再压在笔记正文底部（与浏览器插件一致） -->
+              <el-tab-pane name="quiz">
+                <template #label>
+                  <span>题目<span v-if="quizQuestions.length" class="tab-count">{{ quizQuestions.length }}</span></span>
+                </template>
+                <div v-if="!quizQuestions.length" class="quiz-entry quiz-entry-block">
+                  <el-empty description="按笔记内容生成阶梯自测题：基础 / 中档 / 拔高">
+                    <el-button type="primary" :loading="quizGenerating" @click="generateQuiz">
+                      ✨ 生成本课自测题
+                    </el-button>
+                  </el-empty>
+                  <p class="gen-tip">单选 / 判断 / 填空即时判分，计算题 AI 批改；答错的题自动进入「复盘」错题本</p>
+                </div>
+                <div v-else>
+                  <div class="quiz-toolbar">
+                    <span class="gen-tip">共 {{ quizQuestions.length }} 题 · 答错自动进错题本，可生成同知识点变式题</span>
+                    <el-button size="small" :loading="quizGenerating" @click="generateQuiz">重新生成</el-button>
+                  </div>
+                  <QuizCard
+                    v-for="q in quizQuestions"
+                    :key="q.index"
+                    :q="q"
+                    :index="q.index"
+                    :note-id="noteId"
+                    :show-variant="variantEnabled"
+                    @jump="jump"
+                    @answered="loadWrong"
+                    @variant="onVariant"
+                  />
                 </div>
               </el-tab-pane>
 
@@ -600,6 +605,7 @@ import api from '../api'
 import { hmsToSeconds, secondsToHms } from '../utils/time'
 import { renderMarkdownLite } from '../utils/latex'
 import VideoPlayer from '../components/VideoPlayer.vue'
+import LocalVideoPlayer from '../components/LocalVideoPlayer.vue'
 import MermaidView from '../components/MermaidView.vue'
 import QuizCard from '../components/QuizCard.vue'
 import DictationCard from '../components/DictationCard.vue'
@@ -608,7 +614,7 @@ import LatexText from '../components/LatexText.vue'
 
 export default {
   name: 'NoteDetailView',
-  components: { VideoPlayer, MermaidView, QuizCard, DictationCard, TimeLink, LatexText },
+  components: { VideoPlayer, LocalVideoPlayer, MermaidView, QuizCard, DictationCard, TimeLink, LatexText },
   data() {
     return {
       noteId: 0,
@@ -625,6 +631,11 @@ export default {
       page: 1,
       title: '',
       subject: 'general',
+      // 本地视频笔记
+      source: 'bilibili',
+      localPath: '',
+      localName: '',
+      localAvailable: true,
       summary: '',
       chapters: [],
       examPoints: [],
@@ -638,8 +649,6 @@ export default {
       readingProgress: 0,
       // 自测
       quizQuestions: [],
-      chapterQuestions: [],
-      unmatchedQuestions: [],
       quizGenerating: false,
       variantGenerating: false,
       wrongList: [],
@@ -698,6 +707,12 @@ export default {
     }
   },
   computed: {
+    isLocal() {
+      return this.source === 'local'
+    },
+    localStreamUrl() {
+      return '/api/local/stream/' + this.noteId
+    },
     progressPercent() {
       var t = this.elapsedSeconds
       var transcribing = this.stageText.indexOf('转写') >= 0
@@ -815,6 +830,10 @@ export default {
       this.page = data.page
       this.title = data.title
       this.subject = data.subject
+      this.source = data.source || 'bilibili'
+      this.localPath = data.local_path || ''
+      this.localName = data.local_name || ''
+      this.localAvailable = data.local_available !== false
       this.summary = data.summary
       this.mindmap = data.mindmap
       var note = data.note || {}
@@ -823,7 +842,6 @@ export default {
       this.quizQuestions = ((data.quizzes && data.quizzes.questions) || []).map(function (q, i) {
         return Object.assign({ index: i }, q)
       })
-      this.assignQuestions()
       var words = data.words || {}
       this.wordList = words.words || []
       this.pronList = words.pronunciations || []
@@ -850,38 +868,6 @@ export default {
           if (t > 0) this.jumpBySeconds(t)
         }
       }
-    },
-    assignQuestions() {
-      var self = this
-      this.chapterQuestions = this.chapters.map(function () { return [] })
-      this.unmatchedQuestions = []
-      // v2 结构按章首时间戳划定区间：章 i 覆盖 [章首, 下一章首)
-      var starts = this.chapters.map(function (ch) {
-        return hmsToSeconds(ch && ch.time_stamp)
-      })
-      var ends = starts.map(function (s, i) {
-        if (!(s > 0)) return null
-        var later = starts.slice(i + 1).filter(function (t) { return t > s })
-        return later.length ? later[0] : Infinity
-      })
-      this.quizQuestions.forEach(function (q) {
-        if (!q.time_stamp) { self.unmatchedQuestions.push(q); return }
-        var sec = hmsToSeconds(q.time_stamp)
-        var best = -1
-        for (var i = 0; i < self.chapters.length; i++) {
-          if (starts[i] > 0 && sec >= starts[i] && sec < ends[i]) { best = i; break }
-        }
-        if (best < 0) {
-          var bestDist = Infinity
-          for (var j = 0; j < self.chapters.length; j++) {
-            if (!(starts[j] > 0)) continue
-            var d = Math.abs(sec - starts[j])
-            if (d < bestDist) { bestDist = d; best = j }
-          }
-        }
-        if (best >= 0) self.chapterQuestions[best].push(q)
-        else self.unmatchedQuestions.push(q)
-      })
     },
     sectionTypeLabel(type) {
       var names = {
@@ -1009,15 +995,28 @@ export default {
       }
     },
     async retryGenerate() {
-      if (!this.bvid) return
+      if (!this.isLocal && !this.bvid) return
       this.retrying = true
       try {
-        var res = await api.post('/notes/generate', {
-          bvid: this.bvid,
-          page: this.page || 1,
-          subject: this.subject || 'general',
-          title: this.title || ''
-        })
+        var res
+        if (this.isLocal) {
+          if (!this.localPath) {
+            ElMessage.error('这条笔记没有记录本地文件路径，请回首页重新选择文件')
+            return
+          }
+          res = await api.post('/local/generate', {
+            path: this.localPath,
+            subject: this.subject || 'general',
+            title: this.title || ''
+          })
+        } else {
+          res = await api.post('/notes/generate', {
+            bvid: this.bvid,
+            page: this.page || 1,
+            subject: this.subject || 'general',
+            title: this.title || ''
+          })
+        }
         this.$router.replace('/note/' + res.id)
       } catch (e) {
         ElMessage.error(e.message)
@@ -1041,8 +1040,7 @@ export default {
         this.quizQuestions = (res.questions || []).map(function (q, i) {
           return Object.assign({ index: i }, q)
         })
-        this.assignQuestions()
-        ElMessage.success('已生成 ' + this.quizQuestions.length + ' 道自测题，嵌入各章节下方')
+        ElMessage.success('已生成 ' + this.quizQuestions.length + ' 道自测题，可在「题目」标签查看')
       } catch (e) {
         ElMessage.error(e.message)
       } finally {
@@ -1056,7 +1054,6 @@ export default {
         var res = await api.post('/quiz/variant', { note_id: this.noteId, question: q })
         var item = Object.assign({ index: this.quizQuestions.length, is_variant: true }, res)
         this.quizQuestions.push(item)
-        this.assignQuestions()
         ElMessage.success('已生成变式题（AI 换数字/换情境，考察同一知识点）')
       } catch (e) {
         ElMessage.error(e.response?.data?.detail || e.message)
@@ -1650,6 +1647,14 @@ html.dark .b-table th { color: var(--c-primary); }
 .cs-label { font-weight: 700; color: var(--c-success); }
 
 .quiz-entry { margin-bottom: 16px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.quiz-entry-block { display: block; }
+.quiz-entry-block .gen-tip { margin-top: 8px; }
+.quiz-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.tab-count {
+  display: inline-block; margin-left: 5px; padding: 0 6px;
+  border-radius: 9px; background: var(--c-primary-soft); color: var(--c-primary);
+  font-size: 11px; line-height: 16px; font-weight: 600;
+}
 .chapter-quiz { margin: 12px 0 6px; }
 .chapter-quiz-head {
   font-size: 13px; font-weight: 600; color: var(--c-primary);

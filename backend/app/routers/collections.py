@@ -77,6 +77,19 @@ def _run_job(job_id: int, llm_cfg: dict, pages: list, bvid: str, course_title: s
         job = db.query(CollectionJob).filter(CollectionJob.id == job_id).first()
         if not job:
             return
+        # 续跑（「继续生成未完成的集数」）时继承此前已写入的结果，
+        # 否则本次只处理剩余集数，会把之前成功/失败的记录整体覆盖掉。
+        if job.result_json:
+            try:
+                seeded = json.loads(job.result_json)
+            except Exception:
+                seeded = []
+            if isinstance(seeded, list):
+                results = [r for r in seeded if isinstance(r, dict) and r.get("page") is not None]
+        # 计数与继承的结果对齐（全新任务时 results 为空，等价于归零）
+        job.done_count = sum(1 for r in results if r.get("status") == "done")
+        job.failed_count = sum(1 for r in results if r.get("status") in ("failed", "pending"))
+        db.commit()
         lock = threading.Lock()
         cancelled = False
 

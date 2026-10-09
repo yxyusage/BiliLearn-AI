@@ -15,6 +15,8 @@ frontend/.vite/
 launcher/build/
 launcher/dist/
 launcher/launcher_config.json
+# 手动放到项目根目录的启动器（Release 下载/本地打包，不入库）
+/BiliLearn-AI-Launcher.exe
 
 # 数据与密钥（密钥仅保存在本地，不入库）
 backend/data/

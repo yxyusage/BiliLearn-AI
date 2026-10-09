@@ -14,8 +14,15 @@ applyTheme()
 
 // PWA：仅生产构建注册 Service Worker（本地开发不干扰 HMR）
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  var reloading = false
+  // 新版本 Service Worker 接管后自动刷新一次，避免浏览器继续显示旧界面
+  navigator.serviceWorker.addEventListener('controllerchange', function () {
+    if (reloading) return
+    reloading = true
+    window.location.reload()
+  })
   window.addEventListener('load', function () {
-    navigator.serviceWorker.register('./sw.js').catch(function () { /* 非安全上下文或不可用时静默跳过 */ })
+    navigator.serviceWorker.register('./sw.js?v=' + __APP_VERSION__).catch(function () { /* 非安全上下文或不可用时静默跳过 */ })
   })
 }
 

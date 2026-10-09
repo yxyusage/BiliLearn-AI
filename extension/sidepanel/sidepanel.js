@@ -13,6 +13,9 @@
     view: 'note-list',
     navStack: [],
     currentCollection: null,
+    activeTab: 'note',
+    lastTabUrl: '',
+    followTimer: null,
     settings: {
       fontSize: 14,
       theme: 'light',
@@ -207,6 +210,7 @@
 
   async function checkNote() {
     if (!state.videoInfo || !state.videoInfo.bvid) return;
+    state.noteDetail = null;
     showNoteState('loading');
     var resp = await sendBg({ type: 'getNoteByBvid', bvid: state.videoInfo.bvid, page: state.videoInfo.page });
     if (resp.ok && resp.data) {
@@ -374,7 +378,28 @@
     escaped = escaped.replace(/\$([^$]+?)\$/g, function (m, latex) {
       return '<span class="formula-inline" data-latex="' + latex.replace(/"/g, '&quot;') + '"></span>';
     });
+    escaped = escaped.replace(/\n/g, '<br>');
     return escaped;
+  }
+
+  // 单选答案：模型返回字母时补全选项文本，返回文本时原样展示
+  function answerDisplay(q) {
+    var ans = String(q.answer || '').trim();
+    var m = ans.match(/^([A-Da-d])(?:[\.、\)）:：]|$)/);
+    if (m) {
+      var idx = m[1].toUpperCase().charCodeAt(0) - 65;
+      if (idx >= 0 && idx < q.options.length) {
+        return m[1].toUpperCase() + '. ' + q.options[idx];
+      }
+    }
+    var stripped = ans.replace(/^[A-Da-d][\.、\)）:：]\s*/, '');
+    for (var i = 0; i < q.options.length; i++) {
+      var opt = String(q.options[i]).replace(/^[A-Da-d][\.、\)）:：]\s*/, '');
+      if (stripped && (stripped === opt || stripped.indexOf(opt) >= 0 || opt.indexOf(stripped) >= 0)) {
+        return String.fromCharCode(65 + i) + '. ' + q.options[i];
+      }
+    }
+    return ans;
   }
 
   function renderTable(block) {
@@ -484,7 +509,8 @@
       if (q.type === 'single' && q.options && q.options.length) {
         html += '<div class="quiz-options">';
         q.options.forEach(function (opt, oi) {
-          html += '<div class="quiz-option" data-opt="' + oi + '">' + String.fromCharCode(65 + oi) + '. ' + escapeHtml(opt) + '</div>';
+          // 选项同样要走 LaTeX/Markdown 渲染，否则 $S_1+S_2$ 会原样显示
+          html += '<div class="quiz-option" data-opt="' + oi + '">' + String.fromCharCode(65 + oi) + '. ' + renderInline(opt) + '</div>';
         });
         html += '</div>';
       } else if (q.type === 'judge') {
@@ -498,7 +524,10 @@
         html += '<textarea class="quiz-fill-input" rows="2" placeholder="输入计算过程和答案..."></textarea>';
       }
       html += '<div class="quiz-actions"><button class="btn btn-outline btn-sm quiz-check">查看答案</button></div>';
-      html += '<div class="quiz-answer"><strong>答案：</strong>' + escapeHtml(q.answer || '') + (q.explanation ? '<br><strong>解析：</strong>' + renderInline(q.explanation) : '') + '</div>';
+      var answerText = q.type === 'single' && q.options && q.options.length
+        ? answerDisplay(q)
+        : (q.answer || '');
+      html += '<div class="quiz-answer"><strong>答案：</strong>' + renderInline(answerText) + (q.explanation ? '<br><strong>解析：</strong>' + renderInline(q.explanation) : '') + '</div>';
       html += '</div>';
     });
     els.quizList.innerHTML = html;
@@ -655,17 +684,85 @@
     }
   }
 
+  // 判断当前显示的笔记是否就对应标签页里的那个视频
+  function noteMatchesTab() {
+    if (!state.note || !state.videoInfo) return false;
+    var sameBvid = (state.note.bvid || '') === (state.videoInfo.bvid || '');
+    var samePage = (state.note.page || 1) === (state.videoInfo.page || 1);
+    return sameBvid && samePage;
+  }
+
+  // 重新读取当前标签页的视频信息，并把侧边栏切到该视频对应的笔记
+  async function syncToTab(force) {
+    var ok = await loadVideoInfo();
+    if (!ok) {
+      els.videoInfo.innerHTML = '<div class="vi-loading">请在 B 站视频页面使用</div>';
+      state.videoInfo = null;
+      state.note = null;
+      state.noteDetail = null;
+      showNoteState('none');
+      return false;
+    }
+    // 记下当前 URL，避免自动跟随逻辑重复触发
+    state.lastTabUrl = (state.tab && state.tab.url) ? state.tab.url : '';
+    if (!force && noteMatchesTab() && state.view === 'note-detail') {
+      // 视频没变：只重载当前笔记内容
+      await openNoteById(state.note.id, true);
+      renderQuiz();
+      return true;
+    }
+    state.navStack = [];
+    state.currentCollection = null;
+    state.chatHistory = [];
+    setView('note-list');
+    await checkNote();
+    renderQuiz();
+    return true;
+  }
+
   function refreshCurrent() {
     els.refreshBtn.style.opacity = '0.5';
     setTimeout(function () { els.refreshBtn.style.opacity = '1'; }, 500);
-    if (state.view === 'note-detail' && state.note && state.note.id) {
-      openNoteById(state.note.id, true);
-    } else if (state.view === 'coll-detail' && state.currentCollection && state.currentCollection.id) {
+    if (state.view === 'coll-detail' && state.currentCollection && state.currentCollection.id) {
       openCollectionDetail(state.currentCollection.id, true);
     } else if (state.view === 'coll-list') {
       loadCollections();
     } else {
-      checkNote();
+      // 直接切集的场景：必须重新识别标签页视频，否则会一直停留在上一个视频的笔记
+      syncToTab(false);
+    }
+  }
+
+  // 跟随 B 站站内换集（URL 变化）自动刷新，不用手动点刷新或重开侧边栏
+  async function followActiveTab() {
+    if (state.view !== 'note-list' && state.view !== 'note-detail') return;
+    if (state.activeTab !== 'note' && state.activeTab !== 'chat' && state.activeTab !== 'quiz') return;
+    var tab = await getCurrentTab();
+    if (!tab || !tab.url || !/bilibili\.com\/video\//.test(tab.url)) return;
+    if (tab.url === state.lastTabUrl) return;
+    state.lastTabUrl = tab.url;
+    var ok = await syncToTab(true);
+    if (!ok) return;
+    if (state.activeTab === 'chat') resetChatMessages();
+    if (state.activeTab === 'quiz') renderQuiz();
+  }
+
+  function startFollowingTab() {
+    if (state.followTimer) return;
+    state.followTimer = setInterval(function () { followActiveTab(); }, 2500);
+    try {
+      chrome.tabs.onUpdated.addListener(function (tabId, changeInfo) {
+        if (changeInfo && changeInfo.url) followActiveTab();
+      });
+      chrome.tabs.onActivated.addListener(function () { followActiveTab(); });
+    } catch (e) { /* 权限不足时退回轮询 */ }
+  }
+
+  function resetChatMessages() {
+    state.chatHistory = [];
+    if (els.chatMessages) {
+      els.chatMessages.innerHTML = '<div class="chat-empty"><div class="ce-icon">💬</div><p>AI 答疑</p>' +
+        '<p class="ce-desc">基于当前笔记内容回答你的问题</p></div>';
     }
   }
 
@@ -693,6 +790,39 @@
       .substring(0, 50);
   }
 
+  // 截图统一落在下载目录下的这个根文件夹里，再按视频分子文件夹
+  var CAPTURE_ROOT = 'BiliLearn-AI截图';
+  var MAX_CAPTURES = 60;
+
+  // 老版本截图没有 id：用「时间戳 + BV + 时间点」生成稳定 id，
+  // 否则每次渲染都会变，删除/下载就找不到对应记录了。
+  function captureId(item) {
+    if (!item.id) {
+      item.id = 'c' + String(item.timestamp || 0)
+        + '_' + String(item.bvid || '').replace(/[^0-9a-zA-Z]/g, '')
+        + '_' + String(item.time || '').replace(/[^0-9a-zA-Z]/g, '');
+    }
+    return item.id;
+  }
+
+  // 同一个 BV + 同一个分 P 视为同一个视频
+  function captureGroupKey(item) {
+    if (item.bvid) return item.bvid + '#P' + (item.page || 1);
+    return 'title:' + String(item.title || 'video');
+  }
+
+  // 每个视频一个子文件夹：<视频标题>_P<分P>
+  function captureFolder(item) {
+    var name = sanitizeFilename(item.title || item.bvid || 'video');
+    var page = parseInt(item.page, 10) || 1;
+    if (page > 1) name += '_P' + page;
+    return name;
+  }
+
+  function captureDownloadPath(item) {
+    return CAPTURE_ROOT + '/' + captureFolder(item) + '/' + sanitizeFilename(item.time || 'frame') + '.png';
+  }
+
   async function captureScreenshot() {
     if (!state.tab) {
       showToast('请在 B 站视频页面使用截图功能');
@@ -702,21 +832,23 @@
     try {
       var resp = await sendContent(state.tab.id, { type: 'captureVideo' });
       if (resp.ok && resp.data) {
-        var title = state.videoInfo ? state.videoInfo.title : 'video';
         var time = formatTime(resp.currentTime || 0);
-        var filename = sanitizeFilename(title) + '_' + time + '.png';
-        var downloadResp = await sendBg({ type: 'downloadImage', dataUrl: resp.data, filename: filename });
+        var item = {
+          id: '',
+          filename: '',
+          dataUrl: resp.data,
+          title: state.videoInfo ? state.videoInfo.title : 'video',
+          time: time,
+          bvid: state.videoInfo ? state.videoInfo.bvid : '',
+          page: state.videoInfo ? state.videoInfo.page : 1,
+          timestamp: Date.now()
+        };
+        captureId(item);
+        item.filename = captureDownloadPath(item);
+        var downloadResp = await sendBg({ type: 'downloadImage', dataUrl: resp.data, filename: item.filename });
         if (downloadResp.ok) {
-          await saveCaptureHistory({
-            filename: filename,
-            dataUrl: resp.data,
-            title: title,
-            time: time,
-            bvid: state.videoInfo ? state.videoInfo.bvid : '',
-            page: state.videoInfo ? state.videoInfo.page : 1,
-            timestamp: Date.now()
-          });
-          showToast('📷 截图已保存：' + filename);
+          await saveCaptureHistory(item);
+          showToast('📷 截图已保存：' + item.filename);
         } else {
           showToast('下载失败：' + (downloadResp.error || '未知错误'));
         }
@@ -729,8 +861,6 @@
     els.captureBtn.style.opacity = '1';
   }
 
-  var MAX_CAPTURES = 30;
-
   function loadCaptureHistory() {
     return new Promise(function (resolve) {
       chrome.storage.local.get({ captureHistory: [] }, function (result) {
@@ -739,30 +869,67 @@
     });
   }
 
-  async function saveCaptureHistory(item) {
-    var list = await loadCaptureHistory();
-    list.unshift(item);
-    if (list.length > MAX_CAPTURES) list = list.slice(0, MAX_CAPTURES);
-    await new Promise(function (resolve) {
-      chrome.storage.local.set({ captureHistory: list }, resolve);
+  function writeCaptureHistory(list) {
+    return new Promise(function (resolve, reject) {
+      chrome.storage.local.set({ captureHistory: list }, function () {
+        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+        else resolve();
+      });
     });
+  }
+
+  async function saveCaptureHistory(item) {
+    try {
+      var list = await loadCaptureHistory();
+      list.unshift(item);
+      if (list.length > MAX_CAPTURES) list = list.slice(0, MAX_CAPTURES);
+      await writeCaptureHistory(list);
+      renderCaptureHistory();
+    } catch (e) {
+      showToast('截图已下载，但截图历史保存失败：' + (e.message || e));
+    }
+  }
+
+  // 兼容旧数据：老版本没有 id / 没有下载路径
+  function ensureCaptureFields(item) {
+    captureId(item);
+    if (!item.filename) item.filename = captureDownloadPath(item);
+    if (!item.time) item.time = '00-00-00';
+    return item;
+  }
+
+  async function deleteCapture(id) {
+    var list = await loadCaptureHistory();
+    list = list.filter(function (x) { return ensureCaptureFields(x).id !== id; });
+    await writeCaptureHistory(list);
     renderCaptureHistory();
   }
 
-  async function deleteCapture(index) {
+  async function clearCaptureGroup(groupKey) {
     var list = await loadCaptureHistory();
-    list.splice(index, 1);
-    await new Promise(function (resolve) {
-      chrome.storage.local.set({ captureHistory: list }, resolve);
-    });
+    list = list.filter(function (x) { return captureGroupKey(ensureCaptureFields(x)) !== groupKey; });
+    await writeCaptureHistory(list);
     renderCaptureHistory();
   }
 
   async function clearCaptures() {
-    await new Promise(function (resolve) {
-      chrome.storage.local.set({ captureHistory: [] }, resolve);
-    });
+    await writeCaptureHistory([]);
     renderCaptureHistory();
+  }
+
+  function captureItemHtml(item) {
+    ensureCaptureFields(item);
+    return '<div class="capture-item" data-id="' + escapeHtml(item.id) + '">' +
+      '<img src="' + item.dataUrl + '" alt="' + escapeHtml(item.time || '') + '">' +
+      '<div class="capture-item-actions">' +
+        '<button class="capture-action-btn" data-action="view" title="查看大图">🔍</button>' +
+        '<button class="capture-action-btn" data-action="download" title="重新下载">⬇️</button>' +
+        '<button class="capture-action-btn" data-action="delete" title="删除">🗑️</button>' +
+      '</div>' +
+      '<div class="capture-item-info">' +
+        '<div class="capture-item-time">' + escapeHtml(item.time || '') + ' · ' + new Date(item.timestamp).toLocaleString() + '</div>' +
+      '</div>' +
+    '</div>';
   }
 
   async function renderCaptureHistory() {
@@ -771,23 +938,41 @@
     if (list.length === 0) {
       els.captureEmpty.style.display = 'block';
       els.captureGrid.style.display = 'none';
+      els.captureGrid.innerHTML = '';
       return;
     }
     els.captureEmpty.style.display = 'none';
-    els.captureGrid.style.display = 'grid';
-    els.captureGrid.innerHTML = list.map(function (item, index) {
-      return '<div class="capture-item" data-index="' + index + '">' +
-        '<img src="' + item.dataUrl + '" alt="' + escapeHtml(item.filename) + '">' +
-        '<div class="capture-item-actions">' +
-          '<button class="capture-action-btn" data-action="view" title="查看大图">🔍</button>' +
-          '<button class="capture-action-btn" data-action="download" title="重新下载">⬇️</button>' +
-          '<button class="capture-action-btn" data-action="delete" title="删除">🗑️</button>' +
-        '</div>' +
-        '<div class="capture-item-info">' +
-          '<div class="capture-item-title">' + escapeHtml(item.title || item.filename) + '</div>' +
-          '<div class="capture-item-time">' + (item.time || '') + ' · ' + new Date(item.timestamp).toLocaleString() + '</div>' +
-        '</div>' +
-      '</div>';
+    els.captureGrid.style.display = 'block';
+    // 按视频分组（保持最近截图所在视频排在最前）
+    var groups = [];
+    var index = {};
+    list.forEach(function (item) {
+      ensureCaptureFields(item);
+      var key = captureGroupKey(item);
+      if (!index[key]) {
+        index[key] = {
+          key: key,
+          title: item.title || item.bvid || '未知视频',
+          bvid: item.bvid || '',
+          page: item.page || 1,
+          items: []
+        };
+        groups.push(index[key]);
+      }
+      index[key].items.push(item);
+    });
+    els.captureGrid.innerHTML = groups.map(function (g) {
+      var meta = [];
+      if (g.bvid) meta.push(g.bvid);
+      meta.push('P' + g.page);
+      meta.push(g.items.length + ' 张');
+      var head = '<div class="capture-group-head">' +
+        '<div class="capture-group-title" title="' + escapeHtml(g.title) + '">' + escapeHtml(g.title) + '</div>' +
+        '<div class="capture-group-meta"><span>' + escapeHtml(meta.join(' · ')) + '</span>' +
+        '<button class="capture-group-clear" data-group="' + escapeHtml(g.key) + '" title="清空该视频的截图">清空本视频</button></div>' +
+        '</div>';
+      return '<div class="capture-group">' + head +
+        '<div class="capture-group-grid">' + g.items.map(captureItemHtml).join('') + '</div></div>';
     }).join('');
   }
 
@@ -897,6 +1082,7 @@
   }
 
   function switchTab(tabName) {
+    state.activeTab = tabName;
     state.navStack = [];
     state.currentCollection = null;
     els.tabs.forEach(function (t) { t.classList.toggle('active', t.dataset.tab === tabName); });
@@ -908,7 +1094,8 @@
     }
     if (tabName === 'note') {
       setView('note-list');
-      checkNote();
+      // 每次进入笔记页都重新识别当前标签页，站内换集后不会再显示上一集的笔记
+      syncToTab(true);
     }
     if (tabName === 'chat') {
       if (!state.note) {
@@ -937,24 +1124,30 @@
     els.refreshBtn.addEventListener('click', refreshCurrent);
     els.captureBtn.addEventListener('click', captureScreenshot);
     els.clearCaptureBtn.addEventListener('click', function () {
-      if (confirm('确定清空所有截图历史？')) clearCaptures();
+      if (confirm('确定清空所有截图历史？已下载到本地的图片不会被删除。')) clearCaptures();
     });
     els.captureGrid.addEventListener('click', async function (e) {
-      var item = e.target.closest('.capture-item');
-      if (!item) return;
-      var index = parseInt(item.dataset.index);
+      var groupBtn = e.target.closest('.capture-group-clear');
+      if (groupBtn) {
+        if (confirm('确定清空该视频的截图记录？已下载到本地的图片不会被删除。')) {
+          clearCaptureGroup(groupBtn.dataset.group);
+        }
+        return;
+      }
+      var itemEl = e.target.closest('.capture-item');
+      if (!itemEl) return;
+      var id = itemEl.dataset.id;
       var list = await loadCaptureHistory();
-      var cap = list[index];
+      var cap = null;
+      for (var i = 0; i < list.length; i++) {
+        if (ensureCaptureFields(list[i]).id === id) { cap = list[i]; break; }
+      }
       if (!cap) return;
       var action = e.target.closest('.capture-action-btn');
-      if (action) {
-        var act = action.dataset.action;
-        if (act === 'view') viewCaptureLarge(cap.dataUrl, cap.filename);
-        else if (act === 'download') sendBg({ type: 'downloadImage', dataUrl: cap.dataUrl, filename: cap.filename });
-        else if (act === 'delete') deleteCapture(index);
-      } else {
-        viewCaptureLarge(cap.dataUrl, cap.filename);
-      }
+      var act = action ? action.dataset.action : 'view';
+      if (act === 'view') viewCaptureLarge(cap.dataUrl, cap.filename);
+      else if (act === 'download') sendBg({ type: 'downloadImage', dataUrl: cap.dataUrl, filename: cap.filename });
+      else if (act === 'delete') deleteCapture(id);
     });
 
     if (els.learningStatusSelectEl) {
@@ -1038,9 +1231,14 @@
     initEvents();
     await checkBackend();
     var hasVideo = await loadVideoInfo();
+    if (state.tab && state.tab.url) state.lastTabUrl = state.tab.url;
     if (hasVideo) { await checkNote(); } else { showNoteState('none'); }
+    startFollowingTab();
   }
 
   document.addEventListener('DOMContentLoaded', init);
-  window.addEventListener('unload', stopPolling);
+  window.addEventListener('unload', function () {
+    stopPolling();
+    if (state.followTimer) clearInterval(state.followTimer);
+  });
 })();

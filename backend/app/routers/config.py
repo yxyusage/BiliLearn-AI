@@ -1,9 +1,12 @@
 """模型配置接口（密钥仅保存在本地 SQLite）。"""
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..schemas import SettingBody
+from ..services import bilibili
 from ..services.llm import PROVIDERS, build_llm
 from ..services.settings_store import get_setting, resolve_llm_config, set_setting
 
@@ -54,6 +57,7 @@ def get_config(db: Session = Depends(get_db)):
         "whisper_model": values.get("whisper_model") or "base",
         "whisper_language": values.get("whisper_language") or "",
         "bili_cookie_set": bool(values.get("bili_cookie") or ""),
+        "bili_cookie_has_sessdata": bilibili.has_sessdata(values.get("bili_cookie") or ""),
         "collection_concurrency": values.get("collection_concurrency") or "4",
         "dictation_enabled": str(values.get("dictation_enabled") or "1").lower() in ("1", "true", "on", "yes"),
         "variant_enabled": str(values.get("variant_enabled") or "1").lower() in ("1", "true", "on", "yes"),
@@ -76,7 +80,21 @@ def set_config(body: SettingBody, db: Session = Depends(get_db)):
     if body.key not in _KEYS:
         return {"ok": False, "message": "不支持的配置项"}
     set_setting(db, body.key, body.value)
+    if body.key == "bili_cookie" and not (body.value or "").strip():
+        # 清空 Cookie 时顺手删掉给 yt-dlp 用的 cookie 文件，别留登录凭证在磁盘上
+        bilibili.clear_cookie_file()
     return {"ok": True}
+
+
+@router.post("/verify-cookie")
+def verify_cookie(body: Optional[dict] = None, db: Session = Depends(get_db)):
+    """校验 B站 Cookie 处于什么状态（可传入未保存的 Cookie 先测，不传则用已保存的）。"""
+    cookie = ""
+    if isinstance(body, dict):
+        cookie = str(body.get("cookie") or "")
+    if not cookie:
+        cookie = get_setting(db, "bili_cookie", "")
+    return bilibili.verify_cookie(cookie)
 
 
 @router.post("/test")

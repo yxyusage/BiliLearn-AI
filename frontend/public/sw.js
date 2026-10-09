@@ -1,5 +1,9 @@
-/* BiliLearn-AI Service Worker：静态资源缓存优先，API 走网络优先。 */
-const VERSION = 'bililearn-v1.7.0'
+/* BiliLearn-AI Service Worker：静态资源缓存优先，API 走网络优先。
+ *
+ * 缓存名来自注册时带的 ?v=版本号（见 main.js），版本一变缓存名就变，
+ * activate 会自动清掉旧缓存——不会出现「升级了却还看到旧界面」。
+ */
+const VERSION = 'bililearn-' + (new URL(self.location.href).searchParams.get('v') || 'dev')
 const STATIC_ASSETS = ['./', './index.html', './manifest.webmanifest', './icon.svg', './icon-maskable.svg']
 
 self.addEventListener('install', function (event) {

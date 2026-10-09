@@ -10,6 +10,7 @@ from typing import List
 import yt_dlp
 
 from ..config import DATA_DIR
+from .bilibili import cookie_file
 from .llm import BaseLLM
 from .netutil import clear_proxy_env, has_proxy_env, restore_proxy_env
 from .note_generator import all_timestamps
@@ -50,9 +51,11 @@ def _download_video(url: str, cookie: str = "") -> str:
         "http_headers": {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
             "Referer": "https://www.bilibili.com/",
-            **({"Cookie": cookie} if cookie else {}),
         },
     }
+    cooked = cookie_file(cookie)
+    if cooked:
+        opts["cookiefile"] = cooked
 
     def _do_download():
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -88,13 +91,22 @@ def _download_video(url: str, cookie: str = "") -> str:
     return result
 
 
-def extract_frames(bvid: str, page: int, timestamps: List[int], out_dir: Path, cookie: str = "") -> List[str]:
-    """下载视频流并用 PyAV 在指定时间点抽取关键帧，返回图片路径列表。"""
+def extract_frames(bvid: str, page: int, timestamps: List[int], out_dir: Path, cookie: str = "",
+                   local_path: str = "") -> List[str]:
+    """在指定时间点抽取关键帧，返回图片路径列表。
+
+    local_path 非空时直接读取本地视频文件（本地视频笔记），否则按 bvid 下载 B 站视频流。
+    """
     import av  # faster-whisper 依赖自带 PyAV，也可单独 pip install av
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    url = "https://www.bilibili.com/video/" + bvid + "?p=" + str(page or 1)
-    video_path = _download_video(url, cookie)
+    if local_path:
+        if not os.path.isfile(local_path):
+            raise RuntimeError("本地视频文件不存在或已被移动：" + local_path)
+        video_path = local_path
+    else:
+        url = "https://www.bilibili.com/video/" + bvid + "?p=" + str(page or 1)
+        video_path = _download_video(url, cookie)
     paths = []
     container = av.open(video_path)
     try:

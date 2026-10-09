@@ -17,7 +17,12 @@ jobs:
       - name: Install dependencies
         run: pip install -r backend/requirements.txt
       - name: Unit tests
-        run: python backend/tests/test_smoke.py
+        run: |
+          python backend/tests/test_smoke.py
+          python backend/tests/test_local_video.py
+          python backend/tests/test_collections_resume.py
+          python backend/tests/test_data_migrate.py
+          python backend/tests/test_bili_cookie.py
 
   frontend:
     runs-on: ubuntu-latest

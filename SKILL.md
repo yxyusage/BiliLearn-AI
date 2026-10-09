@@ -11,7 +11,7 @@
 - 停止：Ctrl+C 或关闭运行窗口
 
 ### 配置模型
-- API 在网页「模型配置」页填写（密钥仅存本地 SQLite：backend/data/bililearn.db）
+- API 在网页「模型配置」页填写（密钥仅存本地 SQLite：`~/BiliLearn-AI/bililearn.db`，可用 BILI_DATA_DIR 改目录）
 - 支持的供应商：deepseek / kimi / qwen / ollama（见 backend/app/services/llm/factory.py）
 
 ### 核心 API（前缀 /api）
@@ -19,6 +19,12 @@
 | --- | --- |
 | POST /video/parse | 解析 B站链接，返回视频信息+字幕 |
 | POST /notes/generate | 异步生成笔记 |
+| POST /local/generate | 本地视频/音频直接生成笔记（faster-whisper 离线转写，无需 B站链接） |
+| POST /local/pick | 弹出系统文件选择框，返回本地文件绝对路径 |
+| GET /local/stream/{id} | 流式返回本地视频（支持 Range，可拖进度/时间戳跳转） |
+| GET /data/info | 数据目录路径、数据库大小、笔记数量 |
+| GET /data/export | 导出学习存档 zip（数据库 + Markdown + 关键帧） |
+| POST /data/import | 合并导入另一份 bililearn.db / 存档 zip（同视频跳过） |
 | GET /notes/{id}/status | 生成状态轮询 |
 | GET /notes/{id} | 笔记详情 |
 | POST /notes/{id}/chat/stream | AI 答疑流式（SSE） |
@@ -44,10 +50,12 @@ general / english / math / cs / liberal（对应 backend/app/services/prompts.py
 | 模型调用报 WinError 10061 | 系统代理不可用：清掉 HTTP_PROXY/HTTPS_PROXY 环境变量（代码已自动回退直连） |
 | 端口 8000 被占用 | 找到并结束旧的 python 进程 |
 | whisper 模型下载慢 | 设置 HF_ENDPOINT=https://hf-mirror.com |
+| 提示「未检测到官方字幕」但网页上明明有字幕 | 该字幕需要登录才可见：在设置里填含 `SESSDATA` 的 B站 Cookie，点「验证登录状态」确认显示已登录 |
+| 配了 Cookie 还是没字幕 | 检查 Cookie 里有没有 `SESSDATA`（缺了它只是游客身份，等于没配）；可用 `POST /api/config/verify-cookie` 自查 |
 | 数据库结构变更 | 启动时自动迁移补列，无需手动处理 |
 
 ## 安全注意事项
-1. **绝不提交 backend/data/ 目录**（含用户 API Key 与笔记数据库）
+1. **绝不提交数据目录**（`~/BiliLearn-AI`，含用户 API Key 与笔记数据库）；仓库内的 `backend/data/` 也已忽略
 2. 密钥只写入 SQLite settings 表，日志中不打印完整密钥
 3. 项目仅用于个人学习，不传播视频本体
 4. 视觉模型需供应商支持（qwen-vl-plus / moonshot-vision）

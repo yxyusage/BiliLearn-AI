@@ -1,8 +1,8 @@
 """笔记生成与历史管理接口。"""
 import datetime
 import json
+import os
 import re
-import shutil
 import threading
 import traceback
 from pathlib import Path
@@ -11,11 +11,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
-from ..config import DATA_DIR
 from ..database import SessionLocal, get_db
 from ..models import ConfusionPoint, Note, SubtitleCache, WrongAnswer
 from ..schemas import ChatRequest, FormulaRequest, GenerateRequest
-from ..services import bilibili, export as export_service, features as feature_service, note_generator, whisper
+from ..services import bilibili, export as export_service, features as feature_service, note_generator, storage, whisper
 from ..services.llm import build_llm
 from ..services.prompts import CHAT_SYSTEM, SUBJECTS as SUBJECT_NAMES
 from ..services.settings_store import get_setting, resolve_llm_config, whisper_enabled
@@ -24,39 +23,35 @@ router = APIRouter()
 
 SUBJECTS = ("general", "english", "math", "cs", "liberal")
 
-# 关键帧与公式截图分目录存放，避免同名文件互相覆盖
-FRAME_KINDS = ("keyframes", "formulas", "frames")
+# 落盘路径统一放在 services/storage.py，数据导入/导出复用同一份规则
+FRAME_KINDS = storage.FRAME_KINDS
+_markdown_path = storage.markdown_path
+_save_markdown_file = storage.save_markdown_file
+_frames_dir = storage.frames_dir
 
 
-def _markdown_path(note_id: int, title: str) -> Path:
-    notes_dir = DATA_DIR / "notes"
-    notes_dir.mkdir(parents=True, exist_ok=True)
-    safe = re.sub(r'[\\/:*?"<>|\r\n]+', "_", title or "").strip("_") or "note"
-    return notes_dir / (str(note_id).zfill(4) + "_" + safe[:60] + ".md")
+def _note_meta(note: Note) -> dict:
+    """导出/落盘 Markdown 用的元信息：本地视频显示文件名，B 站视频显示 bvid。"""
+    is_local = (getattr(note, "source", "") or "bilibili") == "local"
+    local_path = getattr(note, "local_path", "") or ""
+    return {
+        "bvid": "" if is_local else note.bvid,
+        "local_name": Path(local_path).name if is_local and local_path else "",
+        "page": note.page,
+        "subject_name": SUBJECT_NAMES.get(note.subject, note.subject),
+        "created_at": note.created_at.isoformat() if note.created_at else "",
+    }
 
 
-def _save_markdown_file(note_id: int, title: str, markdown: str) -> str:
-    path = _markdown_path(note_id, title)
-    path.write_text(markdown, encoding="utf-8")
-    return str(path)
-
-
-def _frames_dir(note_id: int, kind: str) -> Path:
-    return DATA_DIR / "notes" / (str(note_id) + "_" + kind)
+def _local_video_path(note: Note) -> str:
+    """本地视频笔记返回本地文件路径（抽帧直接读原文件），B 站笔记返回空串。"""
+    if (getattr(note, "source", "") or "bilibili") != "local":
+        return ""
+    return getattr(note, "local_path", "") or ""
 
 
 def _cleanup_note_files(note_id: int, title: str) -> None:
-    """删除笔记时同步清理本地 Markdown 与抽帧目录。"""
-    try:
-        md = _markdown_path(note_id, title)
-        if md.exists():
-            md.unlink()
-    except Exception:  # noqa: BLE001
-        traceback.print_exc()
-    for kind in FRAME_KINDS:
-        d = _frames_dir(note_id, kind)
-        if d.exists():
-            shutil.rmtree(d, ignore_errors=True)
+    storage.cleanup_note_files(note_id, title)
 
 
 def _note_context(note: Note, limit: int = 12000) -> str:
@@ -146,6 +141,8 @@ def _run_generation(note_id: int, llm_cfg: dict):
         if not note:
             return
         try:
+            # 本地视频笔记：没有 B 站链接与官方字幕，直接对本地文件做语音转写
+            is_local = (note.source or "bilibili") == "local"
             key = note.bvid + "_" + str(note.page)
             cache = db.query(SubtitleCache).filter(SubtitleCache.key == key).first()
             subtitles = []
@@ -154,7 +151,7 @@ def _run_generation(note_id: int, llm_cfg: dict):
                     subtitles = json.loads(cache.subtitles)
                 except Exception:
                     subtitles = []
-            if not subtitles:
+            if not subtitles and not is_local:
                 subtitles, _source = bilibili.get_subtitles(note.bvid, note.page, get_setting(db, "bili_cookie", ""))
                 if subtitles and not cache:
                     db.add(SubtitleCache(
@@ -163,16 +160,29 @@ def _run_generation(note_id: int, llm_cfg: dict):
                         subtitles=json.dumps(subtitles, ensure_ascii=False),
                     ))
                     db.commit()
-            if not subtitles and whisper_enabled(db):
-                note.error = "未获取到官方字幕，正在本地语音转写（耗时较长）..."
+            if not subtitles and (is_local or whisper_enabled(db)):
+                if is_local:
+                    note.error = "正在对本地视频做语音转写（首次需下载 whisper 模型，长视频耗时较长）..."
+                else:
+                    note.error = "未获取到官方字幕，正在本地语音转写（耗时较长）..."
                 db.commit()
-                subtitles = whisper.transcribe(
-                    note.bvid,
-                    note.page,
-                    model_name=get_setting(db, "whisper_model", "base"),
-                    language=get_setting(db, "whisper_language", "") or None,
-                    cookie=get_setting(db, "bili_cookie", ""),
-                )
+                if is_local:
+                    local_path = note.local_path or ""
+                    if not local_path or not os.path.isfile(local_path):
+                        raise ValueError("本地视频文件不存在或已被移动：" + (local_path or "（未记录路径）"))
+                    subtitles = whisper.transcribe_file(
+                        local_path,
+                        model_name=get_setting(db, "whisper_model", "base"),
+                        language=get_setting(db, "whisper_language", "") or None,
+                    )
+                else:
+                    subtitles = whisper.transcribe(
+                        note.bvid,
+                        note.page,
+                        model_name=get_setting(db, "whisper_model", "base"),
+                        language=get_setting(db, "whisper_language", "") or None,
+                        cookie=get_setting(db, "bili_cookie", ""),
+                    )
                 # 转写结果同样入缓存，重复处理不再转写
                 if subtitles:
                     db.add(SubtitleCache(
@@ -182,6 +192,8 @@ def _run_generation(note_id: int, llm_cfg: dict):
                     ))
                     db.commit()
             if not subtitles:
+                if is_local:
+                    raise ValueError("本地视频未转写出任何语音内容，请确认文件包含人声。")
                 raise ValueError("未获取到字幕。视频可能没有官方字幕，可在配置页开启本地语音转写。")
             note.error = "字幕已就绪，正在生成笔记（长视频会分段处理）..."
             db.commit()
@@ -191,12 +203,7 @@ def _run_generation(note_id: int, llm_cfg: dict):
             if note.subject == "english":
                 words = note_generator.generate_english_extras(subtitles, note_json, llm)
                 note.words = json.dumps(words, ensure_ascii=False)
-            markdown = export_service.render_note_markdown(note_json, note.subject, words, meta={
-                "bvid": note.bvid,
-                "page": note.page,
-                "subject_name": SUBJECT_NAMES.get(note.subject, note.subject),
-                "created_at": note.created_at.isoformat() if note.created_at else "",
-            })
+            markdown = export_service.render_note_markdown(note_json, note.subject, words, meta=_note_meta(note))
             # 同步保存本地 Markdown 文件
             _save_markdown_file(note.id, note.title, markdown)
             note.note_json = json.dumps(note_json, ensure_ascii=False)
@@ -280,6 +287,8 @@ def list_notes(db: Session = Depends(get_db), limit: int = 50):
             "title": n.title,
             "subject": n.subject,
             "status": n.status,
+            "source": n.source or "bilibili",
+            "local_path": n.local_path or "",
             "learning_status": n.learning_status or "unlearned",
             "summary": n.summary,
             "error": n.error,
@@ -309,6 +318,8 @@ def search_notes(q: str, db: Session = Depends(get_db), limit: int = 50):
             "title": n.title,
             "subject": n.subject,
             "status": n.status,
+            "source": n.source or "bilibili",
+            "local_path": n.local_path or "",
             "learning_status": n.learning_status or "unlearned",
             "summary": n.summary,
             "created_at": n.created_at.isoformat() if n.created_at else "",
@@ -383,7 +394,8 @@ def generate_keyframes(note_id: int, db: Session = Depends(get_db)):
     frames_dir = _frames_dir(note.id, "keyframes")
     try:
         frames = formula_service.extract_frames(
-            note.bvid, note.page, [s for _, s in picks], frames_dir, get_setting(db, "bili_cookie", "")
+            note.bvid, note.page, [s for _, s in picks], frames_dir, get_setting(db, "bili_cookie", ""),
+            local_path=_local_video_path(note),
         )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail="关键帧提取失败：" + str(exc)) from exc
@@ -400,12 +412,7 @@ def generate_keyframes(note_id: int, db: Session = Depends(get_db)):
         frames_links.setdefault(k["chapter"], []).append(str(note.id) + "_keyframes/" + k["image"])
     markdown = export_service.render_note_markdown(
         note_json, note.subject, words,
-        meta={
-            "bvid": note.bvid,
-            "page": note.page,
-            "subject_name": SUBJECT_NAMES.get(note.subject, note.subject),
-            "created_at": note.created_at.isoformat() if note.created_at else "",
-        },
+        meta=_note_meta(note),
         frames=frames_links,
     )
     note.markdown = markdown
@@ -445,7 +452,8 @@ def generate_formulas(note_id: int, req: FormulaRequest, db: Session = Depends(g
     frames_dir = _frames_dir(note.id, "formulas")
     try:
         frames = formula_service.extract_frames(
-            note.bvid, note.page, timestamps, frames_dir, get_setting(db, "bili_cookie", "")
+            note.bvid, note.page, timestamps, frames_dir, get_setting(db, "bili_cookie", ""),
+            local_path=_local_video_path(note),
         )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail="关键帧提取失败：" + str(exc)) from exc
@@ -764,6 +772,8 @@ def _note_to_dict(note: Note) -> dict:
         except Exception:
             return default
 
+    source = getattr(note, "source", "") or "bilibili"
+    local_path = getattr(note, "local_path", "") or ""
     note_data = _load(note.note_json, {})
     # 旧版 points 笔记在响应时实时转换为 v2 结构（不回写数据库）
     if _is_legacy_note(note_data):
@@ -790,6 +800,10 @@ def _note_to_dict(note: Note) -> dict:
         "keyframes": _load(note.keyframes, []),
         "review": _load(note.review, {}),
         "dictations": _load(note.dictations, {}),
+        "source": source,
+        "local_path": local_path,
+        "local_name": Path(local_path).name if local_path else "",
+        "local_available": bool(local_path) and os.path.isfile(local_path),
         "created_at": note.created_at.isoformat() if note.created_at else "",
         "updated_at": note.updated_at.isoformat() if note.updated_at else "",
         "markdown_file": str(_markdown_path(note.id, note.title)) if note.markdown else "",

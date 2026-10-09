@@ -32,6 +32,8 @@ class Note(Base):
     keyframes = Column(Text, default="")      # 关键帧嵌入 JSON [{chapter, time_stamp, image}]
     review = Column(Text, default="")         # 复盘分析 JSON
     dictations = Column(Text, default="")     # 英语听写填空 JSON（精听听写专项）
+    source = Column(String(16), default="bilibili")  # 视频来源：bilibili / local
+    local_path = Column(Text, default="")     # 本地视频绝对路径（source=local 时有效）
     created_at = Column(DateTime, default=_now)
     updated_at = Column(DateTime, default=_now, onupdate=_now)
 

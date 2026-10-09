@@ -32,6 +32,12 @@
 - 知识点绑定 `HH:MM:SS` 时间戳，点击跳转视频片段
 - LaTeX 公式渲染、Mermaid 思维导图
 - 无官方字幕时可用 faster-whisper 本地离线转写
+- 需要登录才可见的字幕：在「设置 → B站 Cookie」填入含 `SESSDATA` 的 Cookie 即可（可选，支持一键验证登录状态）
+
+**本地视频**
+- 首页可在「B站链接 / 本地视频」之间切换：本地 mp4 / mkv / flv / avi 等直接生成笔记，不需要 B 站链接
+- 「选择文件」调用系统文件选择框，原文件原地读取，不复制、不上传；也可把视频拖进页面
+- 本地视频用 faster-whisper 离线转写，笔记详情页内置播放器，时间戳点击即可跳到对应画面
 
 **合集处理**
 - 解析合集后列出全部分集，可指定起止集数范围
@@ -51,7 +57,7 @@
 - 知识点关联图谱（ECharts 力导向图，点击节点跳转笔记）
 - 按标题和摘要搜索笔记
 - 单篇笔记导出 Markdown / PDF / Word，英语内容可导出 Anki 卡片
-- 扩展内一键截取视频画面，自动命名下载并记录所属视频与时间点
+- 扩展内一键截取视频画面：按视频分组查看，下载时自动按「视频标题」建子文件夹，记录分 P 与时间点
 
 ---
 
@@ -66,7 +72,7 @@
 
 ### 方式一：便携版（Windows，推荐）
 
-从 [Release 页面](https://github.com/yxyusage/BiliLearn-AI/releases/latest) 下载 `BiliLearn-AI-v1.7.0-portable.zip`，解压后双击根目录的 `BiliLearn-AI-Launcher.exe`，点击「启动服务」。
+从 [Release 页面](https://github.com/yxyusage/BiliLearn-AI/releases/latest) 下载 `BiliLearn-AI-v1.8.0-portable.zip`，解压后双击根目录的 `BiliLearn-AI-Launcher.exe`，点击「启动服务」。
 
 启动器会自动完成虚拟环境创建、依赖安装（使用国内镜像）和前端检查，首次运行需几分钟，之后启动只需数秒。完成后浏览器自动打开。
 
@@ -205,6 +211,7 @@ BiliLearn-AI/
 │   │   │   ├── notes.py         # 笔记 CRUD 与生成
 │   │   │   ├── collections.py   # 合集批量任务
 │   │   │   ├── roadmap.py       # 合集线路图
+│   │   │   ├── local.py         # 本地视频：转写、流式播放、缓存清理
 │   │   │   ├── favorites.py     # 收藏夹导入
 │   │   │   ├── review_material.py
 │   │   │   ├── quiz.py
@@ -217,7 +224,7 @@ BiliLearn-AI/
 │   │       ├── quiz_generator.py
 │   │       ├── prompts.py       # 学科 Prompt 模板
 │   │       └── llm/             # 大模型封装（factory / openai_compat / ollama）
-│   ├── data/                    # 运行时数据（不入库）
+│   ├── data/                    # 旧版数据目录（v1.8 起自动迁移到 ~/BiliLearn-AI）
 │   └── requirements.txt
 ├── frontend/
 │   └── src/
@@ -256,10 +263,19 @@ BiliLearn-AI/
 手动访问 http://localhost:8000。
 
 **提示「未检测到官方字幕」？**
-该视频没有 CC 字幕。可在设置中开启离线语音转写（faster-whisper），支持中英文。
+两种可能：
+
+1. 该视频确实没有 CC 字幕 → 在设置中开启离线语音转写（faster-whisper）；
+2. 该视频的字幕只有**登录后**才可见 → 在「设置 → B站 Cookie」里粘贴你登录后的 Cookie。
+
+**B站 Cookie 怎么填才有用？**
+必须包含 `SESSDATA`（B站的登录凭证）。取法：登录 bilibili.com → F12 → **应用(Application) → Cookie → https://www.bilibili.com** → 整段复制。填完点「验证登录状态」，显示「已登录：你的昵称」才算生效；如果提示「没有 SESSDATA」，说明你复制的是游客 Cookie，等于没配。Cookie 只保存在本地，只用于拉取字幕与受限视频。
 
 **长视频笔记不完整？**
 可调小 `backend/app/config.py` 中的 `subtitle_chunk_chars`，或换用更大上下文窗口的模型。
+
+**本地视频生成失败？**
+本地视频靠 faster-whisper 离线转写，请确认视频有音轨（纯画面无声的视频无法转写），首次使用需下载 whisper 模型（可在设置里把 `HF_ENDPOINT` 指向 hf-mirror 加速）。若提示「文件已被移动」，重新选择一次文件即可。
 
 **端口 8000 被占用？**
 关闭占用该端口的旧实例，或在启动器设置中改用其他端口。
@@ -268,7 +284,20 @@ BiliLearn-AI/
 刷新 B 站页面、等待完全加载后再打开扩展；Edge 用户检查站点访问权限是否已开启。
 
 **数据保存在哪里？**
-`backend/data/bililearn.db`，每份笔记另存一份 Markdown 到 `backend/data/notes/`。
+默认在用户主目录下的 `BiliLearn-AI` 文件夹（Windows 即 `C:\Users\你的用户名\BiliLearn-AI`），与程序目录分离——**升级或重新下载新版本都不会丢笔记**。里面包含：
+
+| 内容 | 路径 |
+| --- | --- |
+| 数据库（笔记 / 错题 / 复习计划 / 配置） | `BiliLearn-AI/bililearn.db` |
+| 每篇笔记的 Markdown | `BiliLearn-AI/notes/` |
+| 关键帧与公式截图 | `BiliLearn-AI/notes/<笔记id>_keyframes`、`_formulas` |
+
+在网页「设置 → 笔记数据与学习存档」里可以直接看到路径、打开目录、导出/导入存档；也可以用环境变量 `BILI_DATA_DIR` 指定到别处（如 NAS 或移动硬盘）。
+
+**换电脑 / 重装后怎么把笔记搬过来？**
+在旧机器「设置 → 导出学习存档」得到一个 zip，在新机器把它（或任意一个 `bililearn.db`）拖到「导入 / 合并存档」区域即可：同一个视频（同 BV + 同分 P）会自动跳过，只补充新内容，不会覆盖你本机的密钥与设置。
+
+> 从 v1.7 及更早版本升级时，程序首次启动会自动把原来的 `backend/data` 搬到新目录，并在旧目录留下一个说明文件。
 
 ---
 

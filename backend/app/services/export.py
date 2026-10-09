@@ -55,7 +55,9 @@ def render_note_markdown(note: dict, subject: str = "general", words: Optional[d
     lines = ["# " + str(note.get("title") or "课程笔记"), ""]
     meta = meta or {}
     meta_parts = []
-    if meta.get("bvid"):
+    if meta.get("local_name"):
+        meta_parts.append("**视频**：本地文件 " + str(meta["local_name"]))
+    elif meta.get("bvid"):
         meta_parts.append("**视频**：B站 " + str(meta["bvid"]) + " P" + str(meta.get("page") or 1))
     if meta.get("subject_name"):
         meta_parts.append("**学科**：" + str(meta["subject_name"]))
@@ -283,7 +285,9 @@ def render_note_html(note: dict, subject: str = "general", words: Optional[dict]
     chapters = note.get("chapters") or []
 
     meta_parts = []
-    if meta.get("bvid"):
+    if meta.get("local_name"):
+        meta_parts.append("本地文件 " + html.escape(str(meta["local_name"])))
+    elif meta.get("bvid"):
         meta_parts.append("B站 " + html.escape(str(meta["bvid"])) + " P" + str(meta.get("page") or 1))
     if meta.get("subject_name"):
         meta_parts.append(html.escape(str(meta["subject_name"])))

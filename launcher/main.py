@@ -14,22 +14,52 @@ from urllib.parse import urlparse
 import customtkinter as ctk
 import requests
 
-VERSION = "1.7.0"
+VERSION = "1.8.0"
 APP_NAME = "BiliLearn-AI"
 GITHUB_REPO = "yxyusage/BiliLearn-AI"
 DEFAULT_PORT = 8000
 
+def _find_app_dir(start: Path) -> Path:
+    """向上查找真正包含 backend/app/main.py 的项目根目录。
+
+    这样把 BiliLearn-AI-Launcher.exe 放在项目根目录、或 launcher/dist/ 这类
+    子目录里都能正确找到后端；完全找不到时退回起始目录并给出原有提示。
+    """
+    for candidate in [start] + list(start.parents)[:3]:
+        if (candidate / "backend" / "app" / "main.py").exists():
+            return candidate
+    return start
+
+
 if getattr(sys, "frozen", False):
-    APP_DIR = Path(sys.executable).parent
+    APP_DIR = _find_app_dir(Path(sys.executable).parent)
 else:
-    APP_DIR = Path(__file__).parent.parent
+    APP_DIR = _find_app_dir(Path(__file__).parent.parent)
 
 CONFIG_PATH = APP_DIR / "launcher_config.json"
 VENV_DIR = APP_DIR / ".venv"
 BACKEND_DIR = APP_DIR / "backend"
 FRONTEND_DIR = APP_DIR / "frontend"
-# 真实数据目录是 backend/data（与后端 config.DATA_DIR 一致）
-DATA_DIR = BACKEND_DIR / "data"
+def _resolve_data_dir():
+    """与后端 config.py 保持一致：默认放在用户主目录下，升级不会丢笔记。
+
+    旧版本的数据在 backend/data，若那里还有数据库且新目录还没有，
+    先指向旧目录（后端首次启动会自动搬过去）。
+    """
+    env_dir = (os.environ.get("BILI_DATA_DIR") or "").strip()
+    if env_dir:
+        return Path(env_dir).expanduser()
+    target = Path.home() / "BiliLearn-AI"
+    if (target / "bililearn.db").exists():
+        return target
+    legacy = BACKEND_DIR / "data"
+    if (legacy / "bililearn.db").exists():
+        return legacy
+    return target
+
+
+# 真实数据目录（与后端 config.DATA_DIR 一致）
+DATA_DIR = _resolve_data_dir()
 REQUIREMENTS_STAMP = VENV_DIR / ".requirements.stamp"
 
 PROXY_KEYS = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy")
@@ -132,6 +162,56 @@ def find_system_python():
         if path:
             return path
     return ""
+
+
+def _no_window_flag():
+    return subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
+
+def _pid_on_port(port: int) -> int:
+    """返回正在监听该端口的进程 PID（取不到返回 0）。"""
+    try:
+        if sys.platform == "win32":
+            out = subprocess.run(
+                ["netstat", "-ano", "-p", "TCP"],
+                capture_output=True, text=True, creationflags=_no_window_flag()
+            ).stdout
+            for line in out.splitlines():
+                parts = line.split()
+                if len(parts) >= 5 and parts[0].upper() == "TCP" and parts[3].upper() == "LISTENING":
+                    if parts[1].endswith(":" + str(port)):
+                        return int(parts[4])
+        else:
+            out = subprocess.run(["lsof", "-ti", "tcp:" + str(port)],
+                                 capture_output=True, text=True).stdout
+            first = [x for x in out.strip().splitlines() if x.strip()]
+            if first:
+                return int(first[0])
+    except Exception:
+        pass
+    return 0
+
+
+def _health_ok(port: int, timeout: float = 1.5) -> bool:
+    """探测该端口上跑的是不是本项目的服务。"""
+    try:
+        resp = requests.get("http://127.0.0.1:{}/api/health".format(port), timeout=timeout)
+        return resp.json().get("app") == APP_NAME
+    except Exception:
+        return False
+
+
+def _kill_pid(pid: int) -> bool:
+    """结束进程（Windows 连同子进程一起结束）。"""
+    try:
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
+                           capture_output=True, creationflags=_no_window_flag())
+        else:
+            os.kill(pid, 15)
+        return True
+    except Exception:
+        return False
 
 
 class ServiceManager:
@@ -369,6 +449,20 @@ class ServiceManager:
         if config.get("model"):
             env["BILI_DEEPSEEK_MODEL"] = config["model"]
 
+        # 端口被占用时先分辨是「本项目的旧实例」还是「别的程序」
+        owner = _pid_on_port(port)
+        if owner and owner != os.getpid():
+            if _health_ok(port):
+                self.log(f"[WARN] 端口 {port} 上已有本项目的旧实例（PID {owner}），正在关闭后重启...")
+                _kill_pid(owner)
+                time.sleep(1.5)
+            else:
+                self.log(f"[ERROR] 端口 {port} 已被其他程序占用（PID {owner}）")
+                self.log("请在启动器「设置」里换一个端口，或先结束该程序后重试")
+                self.set_status("端口被占用", COLORS["error"])
+                self.starting = False
+                return
+
         python_exe = str(get_python_executable())
         cmd = [python_exe, "-m", "uvicorn", "app.main:app",
                "--host", "0.0.0.0", "--port", str(port)]
@@ -379,15 +473,37 @@ class ServiceManager:
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, bufsize=1, encoding="utf-8", errors="replace"
             )
-            self.running = True
             self.starting = False
-            self.set_status("运行中", COLORS["success"])
-            self.log(f"服务已启动: http://localhost:{port}")
-
             threading.Thread(target=self._read_output, daemon=True).start()
+
+            # 等后端真正能响应健康检查再报成功：
+            # 端口冲突、依赖缺失等启动错误都能在这里被抓到，而不是先报「已启动」
+            ready = False
+            for _ in range(30):
+                if self.process.poll() is not None:
+                    break
+                if _health_ok(port):
+                    ready = True
+                    break
+                time.sleep(1)
+
+            if not ready:
+                if self.process.poll() is not None:
+                    self.log("[ERROR] 后台进程已退出（多半是端口冲突或依赖缺失），请查看上方日志")
+                else:
+                    self.log("[ERROR] 服务未能在 30 秒内就绪，请查看上方日志")
+                self.running = False
+                self.set_status("启动失败", COLORS["error"])
+                if self.process and self.process.poll() is None:
+                    self.process.terminate()
+                self.process = None
+                return
+
+            self.running = True
+            self.set_status("运行中", COLORS["success"])
+            self.log(f"服务已就绪: http://localhost:{port}")
             threading.Thread(target=self._wait_for_exit, daemon=True).start()
 
-            time.sleep(2)
             if config.get("auto_open_browser", True):
                 webbrowser.open(f"http://localhost:{port}")
 

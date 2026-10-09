@@ -5,6 +5,7 @@
       <div class="sidebar-header" @click="$router.push('/')">
         <span class="sb-logo-icon">📚</span>
         <span class="sb-logo-text" v-if="!sidebarCollapsed">BiliLearn-AI</span>
+        <span class="sb-version" v-if="!sidebarCollapsed" title="当前版本">v{{ appVersion }}</span>
       </div>
       <nav class="sidebar-nav">
         <router-link to="/" class="sb-item" :class="{active: activeMenu === '/'}" @click="activeNav='/'" v-tooltip="'首页'">
@@ -98,6 +99,7 @@ export default {
   name: 'App',
   data() {
     return {
+      appVersion: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '',
       isMobile: window.innerWidth <= 768,
       sidebarCollapsed: localStorage.getItem('bililearn-sidebar-collapsed') === '1'
     }
@@ -165,6 +167,7 @@ export default {
 }
 .sb-logo-icon { font-size: 22px; flex-shrink: 0; }
 .sb-logo-text { font-size: 16px; font-weight: 700; color: var(--c-text); white-space: nowrap; }
+.sb-version { margin-left: auto; font-size: 11px; color: var(--c-text-3); flex-shrink: 0; }
 .sidebar-nav {
   flex: 1;
   padding: 12px 8px;

@@ -3,12 +3,14 @@ import json
 import os
 import re
 import tempfile
+import threading
 from pathlib import Path
 from typing import List, Tuple
 
 import httpx
 import yt_dlp
 
+from ..config import DATA_DIR
 from .netutil import clear_proxy_env, has_proxy_env, restore_proxy_env
 
 _LANG_PREFS = ["zh-Hans", "zh-CN", "ai-zh", "zh", "zh-Hant", "zh-TW", "en"]
@@ -18,12 +20,112 @@ _HEADERS = {
     "Referer": "https://www.bilibili.com/",
 }
 
+_NAV_URL = "https://api.bilibili.com/x/web-interface/nav"
+_COOKIE_FILE = DATA_DIR / "cache" / "bili_cookies.txt"
+_COOKIE_LOCK = threading.Lock()
+
 
 def _make_headers(cookie: str = "") -> dict:
     headers = dict(_HEADERS)
     if cookie:
         headers["Cookie"] = cookie
     return headers
+
+
+def has_sessdata(cookie: str) -> bool:
+    """SESSDATA 才是 B站的登录凭证，没有它 Cookie 只能是游客身份。"""
+    return any(
+        part.strip().lower().startswith("sessdata=")
+        for part in (cookie or "").split(";")
+        if part.strip()
+    )
+
+
+def cookie_file(cookie: str) -> str:
+    """把 'a=1; b=2' 写成 Netscape 格式 cookie 文件，返回路径（无 Cookie 时返回空串）。
+
+    yt-dlp 原生支持 cookiefile，比硬塞到 http_headers['Cookie'] 可靠：
+    它会把 Cookie 与 buvid 一起交给请求层，登录态才能真正作用于字幕/受限视频。
+    """
+    cookie = (cookie or "").strip()
+    if not cookie:
+        return ""
+    rows = []
+    for part in cookie.split(";"):
+        part = part.strip()
+        if not part or "=" not in part:
+            continue
+        name, _, value = part.partition("=")
+        name, value = name.strip(), value.strip()
+        if not name:
+            continue
+        rows.append("\t".join([".bilibili.com", "TRUE", "/", "FALSE", "0", name, value]))
+    if not rows:
+        return ""
+    _COOKIE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    text = "# Netscape HTTP Cookie File\n# 由 BiliLearn-AI 从设置里的 B站 Cookie 生成\n" + "\n".join(rows) + "\n"
+    tmp = _COOKIE_FILE.with_name(_COOKIE_FILE.name + ".tmp")
+    with _COOKIE_LOCK:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, _COOKIE_FILE)
+    return str(_COOKIE_FILE)
+
+
+def clear_cookie_file() -> None:
+    try:
+        if _COOKIE_FILE.exists():
+            _COOKIE_FILE.unlink()
+    except OSError:
+        pass
+
+
+def verify_cookie(cookie: str) -> dict:
+    """调用 B站 nav 接口判断 Cookie 处于什么状态，返回可直接展示给用户的结论。"""
+    cookie = (cookie or "").strip()
+    if not cookie:
+        return {
+            "has_cookie": False,
+            "has_sessdata": False,
+            "logged_in": False,
+            "uname": "",
+            "message": "尚未配置 Cookie（不配置也能用，只是拿不到需要登录才可见的字幕）",
+        }
+    sess = has_sessdata(cookie)
+    try:
+        resp = httpx.get(_NAV_URL, headers=_make_headers(cookie), timeout=15)
+        data = (resp.json() or {}).get("data") or {}
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "has_cookie": True,
+            "has_sessdata": sess,
+            "logged_in": False,
+            "uname": "",
+            "message": "无法连接 B站 校验（" + str(exc)[:80] + "）",
+        }
+    if data.get("isLogin"):
+        return {
+            "has_cookie": True,
+            "has_sessdata": sess,
+            "logged_in": True,
+            "uname": data.get("uname") or "",
+            "message": "已登录：" + str(data.get("uname") or "B站用户") + "，可用登录态字幕与受限视频",
+        }
+    if not sess:
+        return {
+            "has_cookie": True,
+            "has_sessdata": False,
+            "logged_in": False,
+            "uname": "",
+            "message": "Cookie 里没有 SESSDATA，只是游客身份，等于没配。请在 F12 → 应用(Application) → Cookie → "
+                       "https://www.bilibili.com 里整段复制，必须包含 SESSDATA",
+        }
+    return {
+        "has_cookie": True,
+        "has_sessdata": True,
+        "logged_in": False,
+        "uname": "",
+        "message": "SESSDATA 已失效或复制不完整，请重新登录 B站 后再复制一次",
+    }
 
 
 class VideoError(Exception):
@@ -74,8 +176,11 @@ def parse_video(url: str, cookie: str = "") -> dict:
         "no_warnings": True,
         "skip_download": True,
         "extract_flat": True,
-        "http_headers": _make_headers(cookie),
+        "http_headers": _make_headers(),
     }
+    cooked = cookie_file(cookie)
+    if cooked:
+        ydl_opts["cookiefile"] = cooked
     saved_proxy = None
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -131,8 +236,11 @@ def get_subtitles(bvid: str, page: int = 1, cookie: str = "") -> Tuple[List[dict
         "writesubtitles": True,
         "writeautomaticsub": True,
         "subtitleslangs": list(_LANG_PREFS),
-        "http_headers": _make_headers(cookie),
+        "http_headers": _make_headers(),
     }
+    cooked = cookie_file(cookie)
+    if cooked:
+        base_opts["cookiefile"] = cooked
     saved_proxy: dict = {}
     try:
         for attempt in range(2):

@@ -3,7 +3,18 @@
     <el-card class="hero-card" shadow="never">
       <h2 class="hero-title">视频输入 → 笔记生成 → 自测检验 → 薄弱复盘 → 体系化复习</h2>
       <p class="hero-sub">粘贴B站视频/合集链接，自动提取字幕，生成带时间戳的分学科结构化笔记</p>
-      <div class="input-row">
+
+      <div class="mode-row">
+        <el-radio-group v-model="sourceMode" size="small">
+          <el-radio-button value="bilibili">🔗 B站链接</el-radio-button>
+          <el-radio-button value="local">💻 本地视频</el-radio-button>
+        </el-radio-group>
+        <span class="mode-tip">
+          {{ sourceMode === 'local' ? '直接读取本机文件：用「选择文件」不复制不上传，拖拽需复制一份到本地缓存' : '支持单视频 / 合集 / 分P 链接' }}
+        </span>
+      </div>
+
+      <div v-if="sourceMode === 'bilibili'" class="input-row">
         <el-input
           v-model="url"
           size="large"
@@ -13,6 +24,28 @@
         />
         <el-button type="primary" size="large" :loading="parsing" @click="parseVideo">解析视频</el-button>
       </div>
+
+      <div v-else class="local-row">
+        <el-input
+          v-model="localPath"
+          size="large"
+          clearable
+          placeholder="粘贴本地视频的完整路径，或点右侧「选择文件」"
+          @keyup.enter="generateLocal"
+        >
+          <template #append>
+            <el-button :loading="localPicking" @click="pickLocalFile">选择文件</el-button>
+          </template>
+        </el-input>
+        <el-button
+          type="success"
+          size="large"
+          :loading="localGenerating"
+          :disabled="!localPath.trim()"
+          @click="generateLocal"
+        >生成{{ subjectName }}笔记</el-button>
+      </div>
+      <p v-if="sourceMode === 'local' && localError" class="local-error">{{ localError }}</p>
       <div class="subject-row">
         <span class="subject-label">课程类型：</span>
         <el-radio-group v-model="subject">
@@ -24,7 +57,38 @@
         </el-radio-group>
         <span class="subject-desc">{{ subjectDesc }}</span>
       </div>
-      <div style="margin-top:14px; display:flex; gap:8px; flex-wrap:wrap;">
+
+      <div
+        v-if="sourceMode === 'local'"
+        class="drop-zone"
+        :class="{ over: dragOver, busy: localUploading }"
+        @dragenter.prevent="dragOver = true"
+        @dragover.prevent="dragOver = true"
+        @dragleave.prevent="dragOver = false"
+        @drop.prevent="onDropFile"
+      >
+        <template v-if="localUploading">
+          <span class="dz-spinner"></span>
+          <span>正在复制到本地缓存 {{ uploadPercent }}%（大文件较慢，请勿关闭页面）</span>
+        </template>
+        <template v-else-if="localInfo">
+          <span class="dz-ok">✅ {{ localTitle || localInfo.name }}</span>
+          <span class="dz-meta">
+            {{ formatSize(localInfo.size) }}<template v-if="localInfo.duration"> · {{ formatDuration(localInfo.duration) }}</template><template v-if="localInfo.cached"> · 缓存副本</template>
+          </span>
+        </template>
+        <template v-else>把视频文件拖到这里，或点上方「选择文件」</template>
+      </div>
+      <p v-if="sourceMode === 'local'" class="local-tip">
+        本地视频走 faster-whisper 离线转写（不需要 B 站链接），笔记里的时间戳可以跳到视频对应位置。
+        浏览器拿不到拖拽文件的真实路径，拖进来的文件会复制一份到数据目录的 cache/local_videos（路径见「设置」页）；
+        想原地读取、不占额外空间，请用「选择文件」。
+        <el-link v-if="uploadStats.count" type="primary" :underline="false" @click="cleanupUploads">
+          清理缓存副本（{{ uploadStats.count }} 个 / {{ formatSize(uploadStats.bytes) }}）
+        </el-link>
+      </p>
+
+      <div v-if="sourceMode === 'bilibili'" style="margin-top:14px; display:flex; gap:8px; flex-wrap:wrap;">
         <router-link to="/roadmap"><el-button type="warning" plain size="small">🗺️ 合集线路图：AI 拆模块、标重点、测水平、推荐起点</el-button></router-link>
         <router-link to="/favorites"><el-button type="success" plain size="small">⭐ 收藏夹导入：批量解析收藏夹里的视频，一键生成笔记</el-button></router-link>
       </div>
@@ -121,7 +185,7 @@
     <el-card class="feature-card lift-card" shadow="never">
       <h3>核心能力</h3>
       <el-row :gutter="16">
-        <el-col :xs="24" :sm="8" v-for="f in features" :key="f.title">
+        <el-col :xs="12" :sm="6" v-for="f in features" :key="f.title">
           <div class="feature-item" :class="{ clickable: f.to }" @click="f.to && $router.push(f.to)">
             <div class="feature-icon">{{ f.icon }}</div>
             <div class="feature-title">{{ f.title }}</div>
@@ -142,11 +206,24 @@ export default {
   name: 'HomeView',
   created() {
     this.loadRecent()
+    this.loadUploadStats()
   },
   data() {
     return {
       url: '',
       subject: 'general',
+      // 本地视频模式
+      sourceMode: 'bilibili',
+      localPath: '',
+      localTitle: '',
+      localInfo: null,
+      localError: '',
+      localPicking: false,
+      localGenerating: false,
+      localUploading: false,
+      uploadPercent: 0,
+      dragOver: false,
+      uploadStats: { count: 0, bytes: 0 },
       parsing: false,
       generating: false,
       videoInfo: null,
@@ -235,6 +312,121 @@ export default {
         this.generating = false
       }
     },
+    formatSize(bytes) {
+      var n = Number(bytes) || 0
+      if (n >= 1024 * 1024 * 1024) return (n / 1024 / 1024 / 1024).toFixed(2) + ' GB'
+      if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB'
+      if (n >= 1024) return Math.round(n / 1024) + ' KB'
+      return n + ' B'
+    },
+    formatDuration(seconds) {
+      return secondsToHms(seconds)
+    },
+    async pickLocalFile() {
+      this.localPicking = true
+      try {
+        var res = await api.post('/local/pick', {}, { timeout: 300000 })
+        if (res && res.cancelled) return
+        if (res && res.path) {
+          this.localPath = res.path
+          await this.probeLocal(false)
+        }
+      } catch (e) {
+        ElMessage.error(e.message)
+      } finally {
+        this.localPicking = false
+      }
+    },
+    async probeLocal(cached) {
+      var path = (this.localPath || '').trim()
+      if (!path) {
+        this.localInfo = null
+        this.localError = ''
+        return
+      }
+      try {
+        var res = await api.post('/local/probe', { path: path })
+        this.localPath = res.path
+        this.localTitle = res.name
+        this.localError = ''
+        this.localInfo = {
+          name: res.name,
+          size: res.size,
+          duration: res.duration,
+          cached: !!cached
+        }
+      } catch (e) {
+        this.localInfo = null
+        this.localError = e.message
+      }
+    },
+    async generateLocal() {
+      var path = (this.localPath || '').trim()
+      if (!path) {
+        ElMessage.warning('请先选择或粘贴本地视频文件路径')
+        return
+      }
+      this.localGenerating = true
+      try {
+        var res = await api.post('/local/generate', {
+          path: path,
+          subject: this.subject,
+          title: this.localTitle || (this.localInfo ? this.localInfo.name : '')
+        })
+        if (res.reused) ElMessage.info('该视频的笔记已存在，直接为你打开')
+        this.$router.push({ path: '/note/' + res.id, query: { fresh: '1' } })
+      } catch (e) {
+        ElMessage.error(e.message)
+        this.localGenerating = false
+      }
+    },
+    onDropFile(e) {
+      this.dragOver = false
+      var files = (e.dataTransfer && e.dataTransfer.files) || []
+      if (!files.length) return
+      if (files.length > 1) ElMessage.warning('一次只处理一个文件，已选择第一个')
+      this.uploadLocalFile(files[0])
+    },
+    async uploadLocalFile(file) {
+      this.localUploading = true
+      this.uploadPercent = 0
+      try {
+        var form = new FormData()
+        form.append('file', file, file.name)
+        var res = await api.post('/local/upload', form, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+          timeout: 0,
+          onUploadProgress: function (evt) {
+            if (evt.total) this.uploadPercent = Math.min(99, Math.round(evt.loaded * 100 / evt.total))
+          }.bind(this)
+        })
+        this.uploadPercent = 100
+        this.localPath = res.path
+        this.loadUploadStats()
+        await this.probeLocal(true)
+        // 用原始文件名做标题，而不是带大小后缀的缓存文件名
+        this.localTitle = file.name
+        ElMessage.success(res.reused ? '该文件已在缓存中，可直接生成笔记' : '文件已就绪，点「生成笔记」开始')
+      } catch (e) {
+        ElMessage.error('文件准备失败：' + e.message)
+      } finally {
+        this.localUploading = false
+      }
+    },
+    async loadUploadStats() {
+      try {
+        this.uploadStats = await api.get('/local/uploads')
+      } catch (e) { /* 忽略 */ }
+    },
+    async cleanupUploads() {
+      try {
+        var res = await api.post('/local/uploads/cleanup')
+        ElMessage.success('已清理 ' + res.removed + ' 个缓存副本，释放 ' + this.formatSize(res.freed))
+        this.loadUploadStats()
+      } catch (e) {
+        ElMessage.error(e.message)
+      }
+    },
     async startBatch() {
       this.batchStarting = true
       try {
@@ -264,6 +456,30 @@ html.dark .hero-card { background: linear-gradient(135deg, var(--c-primary-soft)
 .hero-sub { color: var(--c-text-3); margin: 0 0 16px; }
 .input-row { display: flex; gap: 10px; }
 .input-row .el-input { flex: 1; }
+.mode-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.mode-tip { color: var(--c-text-3); font-size: 12px; }
+.local-row { display: flex; gap: 10px; }
+.local-row .el-input { flex: 1; }
+.local-error { margin: 8px 0 0; color: var(--c-danger); font-size: 12px; }
+.drop-zone {
+  margin-top: 12px; padding: 16px 14px; text-align: center;
+  border: 1.5px dashed var(--c-border); border-radius: 12px;
+  background: var(--c-bg-soft); color: var(--c-text-3); font-size: 13px;
+  display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap;
+  transition: border-color .15s, background .15s, color .15s;
+}
+.drop-zone.over { border-color: var(--c-primary); background: var(--c-primary-soft); color: var(--c-primary); }
+.drop-zone.busy { border-style: solid; }
+.dz-ok { color: var(--c-text); font-weight: 600; word-break: break-all; }
+.dz-meta { color: var(--c-text-3); font-size: 12px; }
+.dz-spinner {
+  width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0;
+  border: 2px solid var(--c-border); border-top-color: var(--c-primary);
+  animation: dz-spin .8s linear infinite;
+}
+@keyframes dz-spin { to { transform: rotate(360deg); } }
+.local-tip { margin: 10px 0 0; color: var(--c-text-3); font-size: 12px; line-height: 1.7; }
+.local-tip .el-link { font-size: 12px; vertical-align: baseline; }
 .subject-row { margin-top: 16px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .subject-label { color: var(--c-text-2); font-size: 14px; }
 .subject-desc { color: var(--c-text-3); font-size: 12px; margin-left: 6px; }
@@ -303,6 +519,9 @@ html.dark .hero-card { background: linear-gradient(135deg, var(--c-primary-soft)
   .hero-sub { font-size: 12px; }
   .input-row { flex-direction: column; }
   .input-row .el-button { width: 100%; }
+  .local-row { flex-direction: column; }
+  .local-row .el-button { width: 100%; }
+  .drop-zone { padding: 14px 10px; }
   .subject-row { gap: 6px; }
   .subject-label { font-size: 13px; }
   .video-title { font-size: 14px; }
