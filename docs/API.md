@@ -165,9 +165,14 @@ Base URL：`http://localhost:8000/api`
   "ollama_base_url": "http://localhost:11434",
   "enable_whisper": true,
   "whisper_model": "base",
-  "whisper_language": ""
+  "whisper_language": "",
+  "hf_endpoint": "mirror",
+  "hf_endpoint_env": ""
 }
 ```
+
+`hf_endpoint` 控制语音识别模型的下载源：`""`（自动：先官方、失败自动切国内镜像）、`"mirror"`、`"official"`，或自定义地址。
+未设置时由环境变量 `HF_ENDPOINT` 决定（`start.ps1` / `start.sh` / 图形启动器默认写入 `https://hf-mirror.com`）。
 
 ### POST /config/test
 测试模型连接，返回模型回复前 50 字。

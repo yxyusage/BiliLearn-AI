@@ -1,5 +1,27 @@
 # 更新日志
 
+## v1.8.1 (2026-10-09) — 语音模型下载修复与 macOS 端对齐
+
+### 语音识别模型下载（国内可用性修复）
+- **修复 Windows 用户首次转写必卡在下载模型**：语音识别模型托管在 huggingface.co，国内直连会连接超时（WinError 10060，报错里带 `An error happened while trying to locate the files on the Hub`）。`start.sh` 早就设了 `HF_ENDPOINT=hf-mirror.com`，但 **`start.ps1` 与图形启动器都没有**，而便携版恰好只有 Windows —— 现已三处全部补上，且尊重用户自己设过的值
+- 新增设置项「**模型下载源**」：自动（先官方、失败自动切国内镜像）/ 国内镜像 hf-mirror.com / HuggingFace 官方源 / 自定义地址（下拉可直接输入），也可用 `POST /api/config/set {"key":"hf_endpoint","value":"mirror"}`
+- 代码层三级兜底：尊重 `HF_ENDPOINT` 环境变量 → 设置项优先 → auto 模式下官方源失败自动改用镜像重试（并同步补丁 `huggingface_hub` 的端点常量，否则进程内重试无效）
+- 首次转写会明确提示「正在下载语音识别模型（约 150MB）」；模型已在本地时提示「模型已就绪」，不再笼统显示「正在转写」
+- **模型下载失败不再被误判为「网络中断，待恢复后继续」**：直接标记失败并给出可照做的建议（换镜像 / 设环境变量 / 挂代理 / 先用有字幕的视频），合集任务也不会再被挂成「网络中断可继续」
+
+### macOS / Linux 脚本对齐
+- `start.sh` 与 Windows 版行为对齐：pip 超时与重试参数改为 60s / 5 次；**前端源码有更新时也会重新构建**（此前只在缺少 `dist` 时构建，更新后 mac 用户会一直看到旧界面）；启动信息打印版本 / 数据目录 / 模型源
+- `HF_ENDPOINT` 改为尊重用户已有设置（原来是硬编码，会覆盖用户自己配的源）
+- `build_mac.sh` 不再把产物谎报成 `.app`（`--onefile` 实际产出二进制），按实际产物提示并补 `chmod +x`
+
+### 其它
+- README / SKILL.md 新增「解析报 `HTTP Error 412: Precondition Failed`」的说明：那是 B站风控（换网络 / 换干净出口 IP 即可），与程序无关，配登录 Cookie 能降低概率
+- 修 .gitignore：根目录的 `launcher_config.json` 此前未被忽略（启动器放在项目根目录时配置就写在那里，可能含 API Key）
+
+### 工程
+- 新增 `backend/tests/test_whisper_hf.py`（下载源策略解析、官方→镜像自动回退、失败提示是否可操作、不被误判成网络中断），CI 一并执行
+- 版本号统一为 1.8.1（浏览器插件仍为 2.1.0）
+
 ## v1.8.0 (2026-10-09) — 本地视频笔记、合集续跑修复与插件体验修复
 
 ### 本地视频笔记（新增）

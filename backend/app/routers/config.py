@@ -1,4 +1,5 @@
 """模型配置接口（密钥仅保存在本地 SQLite）。"""
+import os
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -25,6 +26,7 @@ _KEYS = (
     "enable_whisper",
     "whisper_model",
     "whisper_language",
+    "hf_endpoint",
     "bili_cookie",
     "collection_concurrency",
     "dictation_enabled",
@@ -56,6 +58,8 @@ def get_config(db: Session = Depends(get_db)):
         "enable_whisper": str(values.get("enable_whisper") or "").lower() in ("1", "true", "on", "yes"),
         "whisper_model": values.get("whisper_model") or "base",
         "whisper_language": values.get("whisper_language") or "",
+        "hf_endpoint": values.get("hf_endpoint") or "",
+        "hf_endpoint_env": (os.environ.get("HF_ENDPOINT") or "").strip(),
         "bili_cookie_set": bool(values.get("bili_cookie") or ""),
         "bili_cookie_has_sessdata": bilibili.has_sessdata(values.get("bili_cookie") or ""),
         "collection_concurrency": values.get("collection_concurrency") or "4",

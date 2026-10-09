@@ -72,7 +72,7 @@
 
 ### 方式一：便携版（Windows，推荐）
 
-从 [Release 页面](https://github.com/yxyusage/BiliLearn-AI/releases/latest) 下载 `BiliLearn-AI-v1.8.0-portable.zip`，解压后双击根目录的 `BiliLearn-AI-Launcher.exe`，点击「启动服务」。
+从 [Release 页面](https://github.com/yxyusage/BiliLearn-AI/releases/latest) 下载 `BiliLearn-AI-v1.8.1-portable.zip`，解压后双击根目录的 `BiliLearn-AI-Launcher.exe`，点击「启动服务」。
 
 启动器会自动完成虚拟环境创建、依赖安装（使用国内镜像）和前端检查，首次运行需几分钟，之后启动只需数秒。完成后浏览器自动打开。
 
@@ -275,7 +275,31 @@ BiliLearn-AI/
 可调小 `backend/app/config.py` 中的 `subtitle_chunk_chars`，或换用更大上下文窗口的模型。
 
 **本地视频生成失败？**
-本地视频靠 faster-whisper 离线转写，请确认视频有音轨（纯画面无声的视频无法转写），首次使用需下载 whisper 模型（可在设置里把 `HF_ENDPOINT` 指向 hf-mirror 加速）。若提示「文件已被移动」，重新选择一次文件即可。
+本地视频靠 faster-whisper 离线转写，请确认视频有音轨（纯画面无声的视频无法转写）。若提示「文件已被移动」，重新选择一次文件即可。
+
+**第一次转写卡在「正在下载语音识别模型」，过一会儿报连接超时（WinError 10060）？**
+语音识别模型托管在 `huggingface.co`，国内网络直连经常连不上，表现就是 **TCP 连接超时**（报错里会带 `An error happened while trying to locate the files on the Hub`）。任选一种方式解决：
+
+1. 网页「**设置 → 模型下载源**」选 **国内镜像 hf-mirror.com**（推荐，改完下次转写立即生效）；
+2. 或设置环境变量后**重启程序**：
+   - Windows（PowerShell）：`[Environment]::SetEnvironmentVariable('HF_ENDPOINT','https://hf-mirror.com','User')`
+   - macOS / Linux：`export HF_ENDPOINT=https://hf-mirror.com`
+   - `start.bat` / `start.sh` / 图形启动器**已经默认帮你设好镜像**，只有手动跑 `uvicorn` 的才需要自己设；
+3. 或给本机挂一个可用的代理。
+
+> 临时办法：改用**有官方字幕**的视频——有字幕就不会走本地转写，也就不需要下模型。
+> 想确认是哪个域名不通，可以对比 `Test-NetConnection huggingface.co -Port 443` 与 `Test-NetConnection hf-mirror.com -Port 443`。
+
+**模型下载到哪了？想重下怎么办？**
+默认在 `~/.cache/huggingface/hub`（Windows 为 `C:\Users\你的用户名\.cache\huggingface\hub`），`base` 约 150MB。删掉 `models--Systran--faster-whisper-*` 目录即可重新下载。
+
+**解析视频报 `HTTP Error 412: Precondition Failed`？**
+这不是本项目的问题，是 **B站的风控**（同一链接换网络/IP 就好了，很典型）。常见触发原因是出口 IP 被标记（代理/VPN/机房或共享 NAT）或请求过于频繁。可尝试：
+
+- 换一个网络（手机热点通常没问题）；
+- 关掉代理/VPN 后重试，或换一个干净的出口节点；
+- 在「设置 → B站 Cookie」里填一份**含 SESSDATA** 的登录 Cookie（登录态能显著降低被风控的概率，这也是该设置的主要用途之一），并点「验证登录状态」确认；
+- 升到最新版 yt-dlp：`.venv/bin/pip install -U yt-dlp`（Windows：`.venv\Scripts\pip install -U yt-dlp`）。
 
 **端口 8000 被占用？**
 关闭占用该端口的旧实例，或在启动器设置中改用其他端口。

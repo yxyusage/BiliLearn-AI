@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 import customtkinter as ctk
 import requests
 
-VERSION = "1.8.0"
+VERSION = "1.8.1"
 APP_NAME = "BiliLearn-AI"
 GITHUB_REPO = "yxyusage/BiliLearn-AI"
 DEFAULT_PORT = 8000
@@ -442,6 +442,8 @@ class ServiceManager:
         # 后端读取的是 BILI_ 前缀的环境变量（见 backend/app/config.py）
         env, _ = build_subprocess_env()
         env["PYTHONUNBUFFERED"] = "1"
+        # 语音识别模型默认走国内镜像（与 start.ps1 / start.sh 一致；用户自己设过就尊重用户）
+        env.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
         if config.get("api_key"):
             env["BILI_DEEPSEEK_API_KEY"] = config["api_key"]
         if config.get("base_url"):

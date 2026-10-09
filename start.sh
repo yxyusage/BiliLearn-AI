@@ -3,7 +3,9 @@
 set -e
 cd "$(dirname "$0")"
 
-export HF_ENDPOINT=https://hf-mirror.com
+# 语音识别模型默认走国内镜像：huggingface.co 在国内经常连不上，首次转写会卡在下载模型。
+# 已经自己设过 HF_ENDPOINT 就尊重用户设置（也可在网页「设置 → 模型下载源」里改）。
+export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 
 echo "============================================"
 echo "  BiliLearn-AI 一键启动（首次运行需几分钟）"
@@ -48,7 +50,7 @@ if [ ! -f ".venv/.requirements.stamp" ] || [ "backend/requirements.txt" -nt ".ve
   for m in "${MIRRORS[@]}"; do
     echo "  尝试 $m ..."
     if .venv/bin/pip install -r backend/requirements.txt -i "$m" \
-        --default-timeout=20 --retries 2 --disable-pip-version-check \
+        --timeout=60 --retries 5 --disable-pip-version-check \
         --trusted-host mirrors.aliyun.com \
         --trusted-host pypi.tuna.tsinghua.edu.cn \
         --trusted-host pypi.org; then
@@ -63,8 +65,15 @@ if [ ! -f ".venv/.requirements.stamp" ] || [ "backend/requirements.txt" -nt ".ve
   cp backend/requirements.txt .venv/.requirements.stamp
 fi
 
-# 前端：缺少构建产物时安装并构建
+# 前端：缺少构建产物、或源码比产物新时，重新构建（与 start.ps1 行为一致）
+need_frontend=0
 if [ ! -f "frontend/dist/index.html" ]; then
+  need_frontend=1
+else
+  newest_src=$(find frontend/src frontend/package.json -type f -newer frontend/dist/index.html 2>/dev/null | head -n 1 || true)
+  if [ -n "$newest_src" ]; then need_frontend=1; fi
+fi
+if [ "$need_frontend" -eq 1 ]; then
   if ! command -v npm >/dev/null 2>&1; then
     echo "[错误] 未检测到 npm，请先安装 Node.js 18+"
     exit 1
@@ -89,6 +98,14 @@ if command -v lsof >/dev/null 2>&1; then
   fi
 fi
 
-echo "浏览器访问 http://localhost:8000"
-echo "      （按 Ctrl+C 停止程序；下次运行本脚本即可再次启动）"
+APP_VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' frontend/package.json 2>/dev/null | head -n 1 || true)
+DATA_DIR="${BILI_DATA_DIR:-$HOME/BiliLearn-AI}"
+echo "============================================"
+echo "  服务已启动 http://localhost:8000"
+echo "  版本       v${APP_VERSION}"
+echo "  数据目录   ${DATA_DIR}"
+echo "  模型源     ${HF_ENDPOINT}"
+echo "  （升级/重新解压不会丢笔记，可在网页「设置」页导出/导入存档）"
+echo "  按 Ctrl+C 停止"
+echo "============================================"
 .venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir backend

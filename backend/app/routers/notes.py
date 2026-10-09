@@ -119,8 +119,15 @@ def _sync_collection_status(db, batch_id: int, bvid: str, page: int):
 
 
 def _is_network_error(exc: Exception) -> bool:
-    """判断异常是否为网络相关错误。"""
+    """判断异常是否为「等一下可能会好」的网络错误。
+
+    注意：语音模型下载失败（whisper.ModelDownloadError）虽然文本里带"超时"，
+    但它属于配置/环境问题，等多久都不会好，必须排除，否则会被误判成
+    "网络中断，待恢复后继续"（合集任务还会被置为 paused）。
+    """
     import httpx
+    if isinstance(exc, whisper.ModelDownloadError):
+        return False
     if isinstance(exc, (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError,
                         httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout,
                         httpx.PoolTimeout, ConnectionError, OSError)):
@@ -161,10 +168,15 @@ def _run_generation(note_id: int, llm_cfg: dict):
                     ))
                     db.commit()
             if not subtitles and (is_local or whisper_enabled(db)):
-                if is_local:
-                    note.error = "正在对本地视频做语音转写（首次需下载 whisper 模型，长视频耗时较长）..."
+                model_name = get_setting(db, "whisper_model", "base")
+                endpoint_mode = get_setting(db, "hf_endpoint", "")
+                if whisper.model_cached(model_name):
+                    note.error = ("正在对本地视频做语音转写（模型已就绪，长视频耗时较长）..." if is_local
+                                  else "未获取到官方字幕，正在本地语音转写（耗时较长）...")
                 else:
-                    note.error = "未获取到官方字幕，正在本地语音转写（耗时较长）..."
+                    # 模型没下过：这一步要联网下模型，进度文案必须说清楚，否则用户以为在转写
+                    note.error = ("首次使用需先下载语音识别模型（" + str(model_name)
+                                  + "，约 150MB），下载完成后自动开始转写…")
                 db.commit()
                 if is_local:
                     local_path = note.local_path or ""
@@ -172,16 +184,18 @@ def _run_generation(note_id: int, llm_cfg: dict):
                         raise ValueError("本地视频文件不存在或已被移动：" + (local_path or "（未记录路径）"))
                     subtitles = whisper.transcribe_file(
                         local_path,
-                        model_name=get_setting(db, "whisper_model", "base"),
+                        model_name=model_name,
                         language=get_setting(db, "whisper_language", "") or None,
+                        endpoint_mode=endpoint_mode,
                     )
                 else:
                     subtitles = whisper.transcribe(
                         note.bvid,
                         note.page,
-                        model_name=get_setting(db, "whisper_model", "base"),
+                        model_name=model_name,
                         language=get_setting(db, "whisper_language", "") or None,
                         cookie=get_setting(db, "bili_cookie", ""),
+                        endpoint_mode=endpoint_mode,
                     )
                 # 转写结果同样入缓存，重复处理不再转写
                 if subtitles:
@@ -216,7 +230,12 @@ def _run_generation(note_id: int, llm_cfg: dict):
             if note.batch_id:
                 _sync_collection_status(db, note.batch_id, note.bvid, note.page)
         except Exception as exc:  # noqa: BLE001
-            if _is_network_error(exc):
+            if isinstance(exc, whisper.ModelDownloadError):
+                # 模型下载失败不是"网络抖动"，等多久都没用：直接失败并给出可操作建议，
+                # 也不能让合集任务变成"网络中断，可继续"。
+                note.status = "failed"
+                note.error = str(exc)
+            elif _is_network_error(exc):
                 note.status = "pending"
                 note.error = "网络中断，待恢复后继续：" + str(exc)[:200]
             else:

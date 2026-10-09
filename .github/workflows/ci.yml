@@ -23,6 +23,7 @@ jobs:
           python backend/tests/test_collections_resume.py
           python backend/tests/test_data_migrate.py
           python backend/tests/test_bili_cookie.py
+          python backend/tests/test_whisper_hf.py
 
   frontend:
     runs-on: ubuntu-latest

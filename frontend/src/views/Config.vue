@@ -123,6 +123,24 @@
           <el-input v-model="whisperModel" style="width: 200px" placeholder="base" />
           <span class="switch-tip">tiny/base/small/medium/large，越大越准越慢</span>
         </el-form-item>
+        <el-form-item label="模型下载源">
+          <el-select
+            v-model="hfEndpoint"
+            style="width: 280px"
+            filterable
+            allow-create
+            default-first-option
+            @change="saveFeatureValue('hf_endpoint', hfEndpoint)"
+          >
+            <el-option label="自动（先官方，失败自动切国内镜像）" value="" />
+            <el-option label="国内镜像 hf-mirror.com（推荐）" value="mirror" />
+            <el-option label="HuggingFace 官方源" value="official" />
+          </el-select>
+          <span class="switch-tip">
+            语音识别模型托管在 huggingface.co，国内直连经常「连接超时」。首次转写会先下载模型，失败时会给出明确提示和处理办法。
+            <template v-if="hfEndpointEnv">当前环境变量 HF_ENDPOINT = {{ hfEndpointEnv }}</template>
+          </span>
+        </el-form-item>
         <el-form-item label="音频语言">
           <el-input v-model="whisperLanguage" style="width: 200px" placeholder="自动检测" />
           <span class="switch-tip">如 zh / en，留空自动检测</span>
@@ -215,6 +233,8 @@ export default {
       whisperEnabled: false,
       whisperModel: 'base',
       whisperLanguage: '',
+      hfEndpoint: '',
+      hfEndpointEnv: '',
       biliCookie: '',
       biliCookieSet: false,
       biliCookieHasSessdata: false,
@@ -275,6 +295,8 @@ export default {
         this.whisperEnabled = !!cfg.enable_whisper
         this.whisperModel = cfg.whisper_model || 'base'
         this.whisperLanguage = cfg.whisper_language || ''
+        this.hfEndpoint = cfg.hf_endpoint || ''
+        this.hfEndpointEnv = cfg.hf_endpoint_env || ''
         this.biliCookieSet = !!cfg.bili_cookie_set
         this.biliCookieHasSessdata = !!cfg.bili_cookie_has_sessdata
         this.collectionConcurrency = Number(cfg.collection_concurrency) || 2
@@ -289,6 +311,14 @@ export default {
       try {
         await api.post('/config/set', { key: key, value: value ? '1' : '0' })
         ElMessage.success('已保存')
+      } catch (e) {
+        ElMessage.error(e.message)
+      }
+    },
+    async saveFeatureValue(key, value) {
+      try {
+        await api.post('/config/set', { key: key, value: value || '' })
+        ElMessage.success('已保存，下次转写生效')
       } catch (e) {
         ElMessage.error(e.message)
       }

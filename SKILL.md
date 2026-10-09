@@ -50,6 +50,8 @@ general / english / math / cs / liberal（对应 backend/app/services/prompts.py
 | 模型调用报 WinError 10061 | 系统代理不可用：清掉 HTTP_PROXY/HTTPS_PROXY 环境变量（代码已自动回退直连） |
 | 端口 8000 被占用 | 找到并结束旧的 python 进程 |
 | whisper 模型下载慢 | 设置 HF_ENDPOINT=https://hf-mirror.com |
+| 首次转写卡在「下载语音识别模型」，随后报 WinError 10060 | huggingface.co 国内连不上：网页「设置 → 模型下载源」选国内镜像，或设 `HF_ENDPOINT=https://hf-mirror.com`（start.ps1 / start.sh / 启动器已默认设置）；也可 `POST /api/config/set {"key":"hf_endpoint","value":"mirror"}` |
+| 解析报 HTTP Error 412 | B站风控，与代码无关：换网络 / 换干净的出口 IP，或配置含 SESSDATA 的 Cookie |
 | 提示「未检测到官方字幕」但网页上明明有字幕 | 该字幕需要登录才可见：在设置里填含 `SESSDATA` 的 B站 Cookie，点「验证登录状态」确认显示已登录 |
 | 配了 Cookie 还是没字幕 | 检查 Cookie 里有没有 `SESSDATA`（缺了它只是游客身份，等于没配）；可用 `POST /api/config/verify-cookie` 自查 |
 | 数据库结构变更 | 启动时自动迁移补列，无需手动处理 |
