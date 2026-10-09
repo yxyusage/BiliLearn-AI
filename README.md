@@ -72,9 +72,12 @@
 
 ### 方式一：便携版（Windows，推荐）
 
-从 [Release 页面](https://github.com/yxyusage/BiliLearn-AI/releases/latest) 下载 `BiliLearn-AI-v1.8.1-portable.zip`，解压后双击根目录的 `BiliLearn-AI-Launcher.exe`，点击「启动服务」。
+从 [Release 页面](https://github.com/yxyusage/BiliLearn-AI/releases/latest) 下载 `BiliLearn-AI-v1.8.2-portable.zip`，解压后双击根目录的 `BiliLearn-AI-Launcher.exe`，点击「启动服务」。
 
-启动器会自动完成虚拟环境创建、依赖安装（使用国内镜像）和前端检查，首次运行需几分钟，之后启动只需数秒。完成后浏览器自动打开。
+启动器会自动完成虚拟环境创建、依赖安装和前端检查，之后启动只需数秒。完成后浏览器自动打开。
+
+> 首次安装依赖时，启动器会**先并发探测各个 PyPI 镜像、挑最快的那个**，再并发下载 wheel 后本地安装。镜像之间差别很大——实测同一台机器上华为云 732 KB/s、阿里云只有 46 KB/s（差 16 倍），这也是"以前首启特别慢"的主要原因。
+> 进度条上是**真实的百分比、下载速度和预计剩余时间**；即使回退到普通 pip，也是逐行实时输出，不会"看起来卡死"。
 
 启动器还支持：API Key / 模型 / 端口配置、实时日志、数据目录打开、版本检查，以及关闭窗口后最小化到系统托盘。
 

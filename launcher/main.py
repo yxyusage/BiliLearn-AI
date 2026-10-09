@@ -14,7 +14,13 @@ from urllib.parse import urlparse
 import customtkinter as ctk
 import requests
 
-VERSION = "1.8.1"
+# 快速依赖安装（镜像测速 + 并发下载）；既能被 import，也能命令行单独跑
+_HERE = Path(__file__).resolve().parent
+if str(_HERE) not in sys.path:
+    sys.path.insert(0, str(_HERE))
+import fastdeps  # noqa: E402
+
+VERSION = "1.8.2"
 APP_NAME = "BiliLearn-AI"
 GITHUB_REPO = "yxyusage/BiliLearn-AI"
 DEFAULT_PORT = 8000
@@ -215,13 +221,21 @@ def _kill_pid(pid: int) -> bool:
 
 
 class ServiceManager:
-    def __init__(self, log_callback, status_callback):
+    def __init__(self, log_callback, status_callback, progress_callback=None):
         self.log = log_callback
         self.set_status = status_callback
+        self.progress_callback = progress_callback or (lambda fraction, text: None)
         self.process = None
         self.running = False
         self.starting = False
         self._cancel_requested = False
+
+    def set_progress(self, fraction, text=""):
+        """把安装/下载进度推给界面（fraction 为 -1 表示只更新文案）。"""
+        try:
+            self.progress_callback(fraction, text)
+        except Exception:  # noqa: BLE001
+            pass
 
     def check_python(self):
         python = find_system_python()
@@ -274,7 +288,6 @@ class ServiceManager:
         if self._deps_up_to_date():
             self.log("依赖已是最新，跳过安装")
             return True
-        self.log("安装 Python 依赖...")
 
         env, proxy_state = build_subprocess_env()
         if proxy_state is False:
@@ -282,45 +295,113 @@ class ServiceManager:
         elif proxy_state is True:
             self.log("使用系统代理")
 
-        pip = str(get_pip_executable())
+        python = str(get_python_executable())
         req = str(BACKEND_DIR / "requirements.txt")
 
-        mirrors = [
-            ("阿里云镜像", "https://mirrors.aliyun.com/pypi/simple/"),
-            ("清华镜像", "https://pypi.tuna.tsinghua.edu.cn/simple"),
-            ("官方 PyPI", "https://pypi.org/simple/"),
-        ]
+        # 一、快速通道：镜像测速 + 并发下载 wheel + 本地安装（见 fastdeps.py）
+        self.set_status("测速并下载依赖...", COLORS["warning"])
+        self.log("安装 Python 依赖（先探测最快的镜像，再并发下载）...")
+        try:
+            ok = fastdeps.install(
+                python, req,
+                log=self.log,
+                progress=self._on_install_progress,
+                cancel=lambda: self._cancel_requested,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.log(f"  快速安装异常：{exc}")
+            ok = False
+        if ok:
+            self._stamp_requirements(req)
+            return True
+        if self._cancel_requested:
+            return False
 
-        for name, url in mirrors:
-            self.log(f"  尝试 {name}...")
+        # 二、回退通道：普通 pip，但逐行流式输出 + 卡死看门狗（不再有 10 分钟总超时）
+        self.log("改用普通 pip 安装（实时输出，长时间无响应才会判定卡死）...")
+        ranked = []
+        try:
+            ranked = [(n, u) for n, u, s in fastdeps.probe_mirrors(log=self.log) if s > 0]
+        except Exception:  # noqa: BLE001
+            pass
+        if not ranked:
+            ranked = list(fastdeps.DEFAULT_MIRRORS)
+        for name, url in ranked:
             if self._cancel_requested:
                 return False
-            try:
-                result = subprocess.run(
-                    [pip, "install", "-r", req, "-i", url,
-                     "--disable-pip-version-check",
-                     "--default-timeout=20",
-                     "--retries", "2",
-                     "--trusted-host", "pypi.tuna.tsinghua.edu.cn",
-                     "--trusted-host", "mirrors.aliyun.com",
-                     "--trusted-host", "pypi.org"],
-                    capture_output=True, text=True, timeout=600, env=env,
-                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-                )
-                if result.returncode == 0:
-                    self.log(f"  {name} 安装成功")
-                    try:
-                        shutil.copyfile(req, REQUIREMENTS_STAMP)
-                    except Exception:
-                        pass
-                    return True
-                detail = (result.stderr or result.stdout or "").strip()
-                self.log(f"  {name} 失败: {detail[-200:]}")
-            except subprocess.TimeoutExpired:
-                self.log(f"  {name} 超时")
-            except Exception as e:
-                self.log(f"  {name} 错误: {e}")
+            self.log(f"  尝试 {name} ...")
+            if self._pip_install_streamed(python, req, url, env):
+                self._stamp_requirements(req)
+                return True
+            self.log(f"  {name} 失败，换下一个镜像")
         return False
+
+    def _stamp_requirements(self, req: str) -> None:
+        try:
+            shutil.copyfile(req, REQUIREMENTS_STAMP)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _on_install_progress(self, fraction: float, text: str) -> None:
+        """fastdeps 的下载进度回调：驱动进度条 + 明细文案。"""
+        if fraction >= 0:
+            self.set_progress(fraction, text)
+
+    def _pip_install_streamed(self, python: str, req: str, index_url: str, env: dict,
+                              stall_seconds: int = 300) -> bool:
+        """流式跑 pip install：逐行进日志，只有「长时间毫无输出」才判定卡死。
+
+        关键点：
+          * 不用 capture_output（那样日志会一直不动，像卡死）；
+          * 不设总时长上限（慢网也能装完），改为监控输出间隔；
+          * 强制 UTF-8 环境，避免中文/GBK 控制台下 pip 的进度条崩溃。
+        """
+        cmd = [
+            python, "-m", "pip", "install", "-r", req, "-i", index_url,
+            "--disable-pip-version-check",
+            "--progress-bar", "off", "--no-color", "--no-input",
+            "--default-timeout=60", "--retries", "5",
+        ]
+        run_env = dict(env)
+        run_env.update(fastdeps.pip_env())
+        state = {"last": time.monotonic(), "killed": ""}
+        started = time.monotonic()
+        try:
+            proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, bufsize=1, encoding="utf-8", errors="replace", env=run_env,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.log(f"  启动 pip 失败：{exc}")
+            return False
+
+        def watchdog() -> None:
+            while proc.poll() is None:
+                if self._cancel_requested:
+                    state["killed"] = "用户取消"
+                    proc.kill()
+                    return
+                if time.monotonic() - state["last"] > stall_seconds:
+                    state["killed"] = f"超过 {stall_seconds} 秒没有任何输出"
+                    proc.kill()
+                    return
+                time.sleep(2)
+
+        threading.Thread(target=watchdog, daemon=True).start()
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            line = line.rstrip()
+            if not line:
+                continue
+            state["last"] = time.monotonic()
+            self.log("  " + line)
+            self.set_progress(-1, line[:120] + f"（已用 {int(time.monotonic() - started)}s）")
+        code = proc.wait()
+        if state["killed"]:
+            self.log(f"  pip 被中断：{state['killed']}")
+            return False
+        return code == 0
 
     def build_frontend_if_needed(self):
         """前端构建产物缺失时自动构建（否则后端无页面可托管，访问 8000 会 404）。"""
@@ -558,7 +639,7 @@ class BiliLearnLauncher(ctk.CTk):
 
         self.config = load_config()
         self.log_lines = []
-        self.service = ServiceManager(self._log, self._set_status)
+        self.service = ServiceManager(self._log, self._set_status, self._set_progress)
         self.tray_icon = None
 
         self.title(f"{APP_NAME} 启动器 v{VERSION}")
@@ -676,12 +757,21 @@ class BiliLearnLauncher(ctk.CTk):
         self.status_label.grid(row=0, column=0, pady=(24, 8))
 
         self.progress = ctk.CTkProgressBar(
-            card, width=360, height=8,
+            card, width=360, height=14, corner_radius=7,
             progress_color=COLORS["accent"],
             fg_color=COLORS["bg_input"]
         )
         self.progress.set(0)
-        self.progress.grid(row=1, column=0, padx=30, pady=(0, 16), sticky="ew")
+        self.progress.grid(row=1, column=0, padx=30, pady=(0, 8), sticky="ew")
+
+        # 进度明细：真实百分比、速度、剩余时间都写在这里，避免"看起来卡死"
+        self.detail_label = ctk.CTkLabel(
+            card, text="",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_dim"],
+            wraplength=430, justify="left", anchor="w"
+        )
+        self.detail_label.grid(row=2, column=0, padx=30, pady=(0, 14), sticky="ew")
 
         self.start_btn = ctk.CTkButton(
             card, text="启动服务",
@@ -691,7 +781,7 @@ class BiliLearnLauncher(ctk.CTk):
             hover_color=COLORS["accent_hover"],
             command=self._toggle_service
         )
-        self.start_btn.grid(row=2, column=0, padx=30, pady=(0, 24))
+        self.start_btn.grid(row=3, column=0, padx=30, pady=(0, 24))
 
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.grid(row=2, column=0, sticky="ew", padx=30, pady=(5, 10))
@@ -760,12 +850,24 @@ class BiliLearnLauncher(ctk.CTk):
             self.start_btn.configure(text="停止服务", fg_color=COLORS["error"], state="normal")
             self.progress.set(1)
 
+    def _set_progress(self, fraction, text=""):
+        """安装/下载回调：驱动真实进度条与明细文案（fraction=-1 表示只更新文案）。"""
+        try:
+            if fraction is not None and fraction >= 0:
+                self.progress.set(max(0.0, min(1.0, float(fraction))))
+            if text:
+                self.detail_label.configure(text=text)
+        except Exception:  # noqa: BLE001
+            pass
+
     def _set_status(self, text, color):
         self.status_label.configure(text=text, text_color=color)
         if text == "运行中":
             self.progress.set(1)
+            self.detail_label.configure(text="服务已就绪")
         elif text in ("已停止", "已取消"):
             self.progress.set(0)
+            self.detail_label.configure(text="")
             try:
                 self.start_btn.configure(
                     text="启动服务", fg_color=COLORS["accent"], state="normal"
@@ -773,7 +875,9 @@ class BiliLearnLauncher(ctk.CTk):
             except Exception:
                 pass
         else:
-            self.progress.set(0.5)
+            # 其它中间态（检查环境/安装依赖/启动服务…）不再把进度条写死成 50%，
+            # 真实进度由 set_progress 回调推进，明细文案跟随状态
+            self.detail_label.configure(text=text)
 
     def _log(self, msg):
         timestamp = datetime.now().strftime("%H:%M:%S")

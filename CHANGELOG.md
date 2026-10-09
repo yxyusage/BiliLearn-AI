@@ -1,5 +1,25 @@
 # 更新日志
 
+## v1.8.2 (2026-10-09) — 首次装依赖大幅提速、进度可见（不用再干等）
+
+### 首次安装依赖：从"等十几分钟像卡死"到"看得见在跑"
+- **镜像测速**：并发探测阿里云 / 清华 / 中科大 / 腾讯云 / 华为云 / 官方源，挑最快的再开始装。实测同一台机器华为云 732 KB/s、阿里云仅 46 KB/s（差 16 倍），而旧代码写死先试阿里云
+- **并发下载 wheel**：先用 `pip install --dry-run --report` 解析出待装 wheel 清单（不下载），再用 8 线程并发下载到本地，最后 `pip install --no-index --find-links` 本地安装；任何一步失败自动回退普通 pip
+- **进度条变成真的**：显示「已下载 42.3/150.0 MB · 2.1 MB/s · 还需 1:20」与当前文件名，明细写在进度条下方
+- **日志实时输出**：原来启动器用 `capture_output` 把 pip 输出全部吞掉、只在失败时打印最后 200 字，界面看起来永远不动；现在逐行流式打印（含已用时）
+- **去掉 10 分钟总超时**：改为「连续 5 分钟没有任何输出」才判定卡死并切换镜像。旧逻辑 600 秒一到就放弃——慢网用户永远装不完
+- 强制子进程 UTF-8（`PYTHONUTF8=1`），修掉 pip 的 rich 进度条在中文/GBK 控制台下抛 `UnicodeEncodeError` 的问题
+
+### 依赖瘦身（少下约 25 MB）
+- 删掉三个零引用的包：`fpdf2`、`python-docx`、`openpyxl`（PDF 早已改用系统 Edge/Chrome headless 打印，Word 走 Pandoc）
+- `PyMuPDF`（19.8 MB wheel）只在合集「复习资料 PDF」里读目录页码，已移到新的 `backend/requirements-optional.txt`，不装会优雅降级（目录不显示页码）
+- `uvicorn[standard]` → `uvicorn`：不做热重载、不用 websocket，少拉 httptools / watchfiles / websockets 等
+
+### 新增
+- `launcher/fastdeps.py`：纯标准库实现的「测速 + 并发下载 + 本地安装」；启动器 import 使用，`start.ps1` / `start.sh` 也调用同一条快速通道
+- `backend/tests/test_fastdeps.py`：单位换算、pip 报告解析、镜像排序、全部镜像不可用时必须回退（CI 一并执行）
+- `backend/requirements-optional.txt`：放可选增强依赖
+
 ## v1.8.1 (2026-10-09) — 语音模型下载修复与 macOS 端对齐
 
 ### 语音识别模型下载（国内可用性修复）

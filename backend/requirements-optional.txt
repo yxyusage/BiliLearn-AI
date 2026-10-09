@@ -1,0 +1,10 @@
+# 可选增强依赖（不是必须装，装了体验更好）
+#
+# 安装方式（用项目的虚拟环境）：
+#   Windows:  .venv\Scripts\pip install -r backend\requirements-optional.txt
+#   macOS/Linux: .venv/bin/pip install -r backend/requirements-optional.txt
+#
+# PyMuPDF：合集「复习资料 PDF」用它读取目录页码。
+#   不装也能正常生成与导出，只是目录里不显示章节页码（backend/app/services/review_material.py
+#   里已做优雅降级：import 失败就返回空页码）。
+PyMuPDF>=1.24.0

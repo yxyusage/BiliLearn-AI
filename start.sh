@@ -47,6 +47,19 @@ if [ ! -f ".venv/.requirements.stamp" ] || [ "backend/requirements.txt" -nt ".ve
     "https://pypi.org/simple/"
   )
   installed=0
+
+  # 快速通道：并发探测最快的 PyPI 镜像 → 并发下载 wheel → 本地安装
+  # （见 launcher/fastdeps.py；失败会自动落到下面的普通 pip 逐镜像重试）
+  if [ -f "launcher/fastdeps.py" ]; then
+    echo "  并发探测镜像并下载依赖..."
+    if .venv/bin/python launcher/fastdeps.py --python .venv/bin/python --requirements backend/requirements.txt; then
+      installed=1
+    else
+      echo "  快速通道未成功，改用普通 pip 逐镜像重试..."
+    fi
+  fi
+
+  if [ "$installed" -ne 1 ]; then
   for m in "${MIRRORS[@]}"; do
     echo "  尝试 $m ..."
     if .venv/bin/pip install -r backend/requirements.txt -i "$m" \
@@ -58,6 +71,8 @@ if [ ! -f ".venv/.requirements.stamp" ] || [ "backend/requirements.txt" -nt ".ve
       break
     fi
   done
+  fi
+
   if [ "$installed" -ne 1 ]; then
     echo "[错误] 依赖安装失败，请检查网络"
     exit 1
