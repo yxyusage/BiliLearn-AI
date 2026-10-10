@@ -14,7 +14,7 @@ from .routers import collections, config, data, export, favorites, local, notes,
 Base.metadata.create_all(bind=engine)
 run_migrations()
 
-APP_VERSION = "1.8.5"
+APP_VERSION = "1.8.6"
 
 app = FastAPI(title="BiliLearn-AI", description="B站全学科AI学习助手", version=APP_VERSION)
 

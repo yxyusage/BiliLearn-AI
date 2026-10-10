@@ -236,9 +236,12 @@
 
   // 内容脚本可能没注入：Edge 的站点访问权限、扩展刚更新、或从 B 站站内 SPA 路由跳转过来。
   // 按需补注入再重试一次，避免直接报"无法获取视频信息"（content.js 自带防重复注入）
+  // 返回 {ok, reason}：失败时把原因带出来，好让提示能说清楚到底卡在哪
   async function ensureContentScript(tabId) {
+    if (!chrome.scripting || !chrome.scripting.executeScript) {
+      return { ok: false, reason: '扩展缺少 scripting 权限，请到扩展页点一次「🔄 重新加载」' };
+    }
     try {
-      if (!chrome.scripting || !chrome.scripting.executeScript) return false;
       await chrome.scripting.executeScript({
         target: { tabId: tabId },
         files: ['content/content.js']
@@ -246,9 +249,9 @@
       try {
         await chrome.scripting.insertCSS({ target: { tabId: tabId }, files: ['content/content.css'] });
       } catch (e) { /* 样式注入失败不影响功能 */ }
-      return true;
+      return { ok: true };
     } catch (e) {
-      return false;
+      return { ok: false, reason: (e && e.message) ? e.message : '注入内容脚本失败' };
     }
   }
 
@@ -272,13 +275,25 @@
       return false;
     }
     var resp = await sendContent(tab.id, { type: 'getVideoInfo' });
+    var injectReason = '';
     if (!resp.ok || !resp.data || !resp.data.bvid) {
+      // 内容脚本不在（常见于：从合集页 SPA 跳到视频页、扩展刚更新、标签页是更新前打开的）
       var injected = await ensureContentScript(tab.id);
-      if (injected) resp = await sendContent(tab.id, { type: 'getVideoInfo' });
+      if (injected.ok) {
+        resp = await sendContent(tab.id, { type: 'getVideoInfo' });
+      } else {
+        injectReason = injected.reason;
+      }
+    }
+    if (!resp.ok || !resp.data || !resp.data.bvid) {
+      // 页面刚跳转时脚本可能还没就绪，稍等一下再试一次（B 站换集是 SPA 跳转，时序很敏感）
+      await new Promise(function (r) { setTimeout(r, 700); });
+      resp = await sendContent(tab.id, { type: 'getVideoInfo' });
     }
     if (!resp.ok || !resp.data || !resp.data.bvid) {
       els.videoInfo.innerHTML = '<div class="vi-loading">已找到视频页，但读不到视频信息（' +
-        escapeHtml(resp.error || '内容脚本无响应') + '）。<br>请刷新 B 站页面后重试。</div>';
+        escapeHtml(injectReason || resp.error || '内容脚本无响应') + '）。<br>' +
+        '按 F5 刷新一次 B 站页面即可；若反复出现，请到扩展页点一次「🔄 重新加载」。</div>';
       return false;
     }
     state.videoInfo = resp.data;
@@ -782,6 +797,13 @@
     var ok = await loadVideoInfo();
     if (!ok) {
       // 不要在这里覆盖 loadVideoInfo 写的具体原因（否则只会看到笼统的"请在 B 站视频页面使用"）
+      // 关键：若当前地址仍指向已经显示出来的那篇笔记（内容脚本暂时读不到），就保留内容，
+      // 否则 B 站站内换集（SPA 跳转）时会"闪一下笔记就消失了"
+      var url = (state.tab && state.tab.url) ? state.tab.url : '';
+      if (state.note && state.noteDetail && state.note.bvid && url.indexOf(state.note.bvid) >= 0) {
+        showNoteState('content');
+        return false;
+      }
       state.videoInfo = null;
       state.note = null;
       state.noteDetail = null;
