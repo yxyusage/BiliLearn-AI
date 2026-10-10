@@ -475,6 +475,7 @@ input:checked + .slider:before { transform: translateX(16px); }
 }
 @keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
 
+.vi-url { display: inline-block; max-width: 100%; word-break: break-all; color: var(--text-3); font-size: 11px; }
 .capture-container { padding: 12px; }
 .capture-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
 .capture-title { font-size: 14px; font-weight: 600; color: var(--text); }

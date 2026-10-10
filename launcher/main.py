@@ -20,7 +20,7 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 import fastdeps  # noqa: E402
 
-VERSION = "1.8.3"
+VERSION = "1.8.4"
 APP_NAME = "BiliLearn-AI"
 GITHUB_REPO = "yxyusage/BiliLearn-AI"
 DEFAULT_PORT = 8000

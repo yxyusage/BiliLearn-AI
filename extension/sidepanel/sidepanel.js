@@ -15,6 +15,8 @@
     currentCollection: null,
     activeTab: 'note',
     lastTabUrl: '',
+    // 最近一次识别到的 B 站视频标签页，用于 Edge 侧边栏等拿不到"活跃标签页"的场景兜底
+    lastVideoTab: null,
     followTimer: null,
     settings: {
       fontSize: 14,
@@ -140,12 +142,59 @@
     });
   }
 
-  function getCurrentTab() {
+  function isVideoTab(tab) {
+    return !!(tab && tab.id != null && tab.url && /bilibili\.com\/video\//.test(tab.url));
+  }
+
+  function queryTabs(query) {
     return new Promise(function (resolve) {
-      chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
-        resolve(tabs[0] || null);
-      });
+      try {
+        if (!chrome.tabs || !chrome.tabs.query) { resolve([]); return; }
+        chrome.tabs.query(query, function (tabs) {
+          if (chrome.runtime.lastError) { resolve([]); return; }
+          resolve(tabs || []);
+        });
+      } catch (e) {
+        resolve([]);
+      }
     });
+  }
+
+  function rememberVideoTab(tab) {
+    if (isVideoTab(tab)) {
+      state.lastVideoTab = { id: tab.id, url: tab.url, windowId: tab.windowId, title: tab.title || '' };
+    }
+    return tab || null;
+  }
+
+  // 找出"用户正在看的 B 站视频标签页"。
+  // Edge 的侧边栏里 chrome.tabs.query({active:true,currentWindow:true}) 可能返回空、
+  // 或返回的不是 B 站页面；此时绝不能直接判定"这个视频没有笔记"，要逐级兜底：
+  //   活跃标签页 → 最近聚焦窗口的活跃标签页 → 所有 B 站视频页 → 上次记住的那个
+  async function getCurrentTab() {
+    var found = (await queryTabs({ active: true, currentWindow: true })).filter(isVideoTab);
+    if (found.length) return rememberVideoTab(found[0]);
+
+    found = (await queryTabs({ active: true, lastFocusedWindow: true })).filter(isVideoTab);
+    if (found.length) return rememberVideoTab(found[0]);
+
+    var all = (await queryTabs({ url: ['*://*.bilibili.com/video/*'] })).filter(isVideoTab);
+    if (all.length) {
+      var remembered = all.filter(function (t) {
+        return state.lastVideoTab && t.id === state.lastVideoTab.id;
+      });
+      if (remembered.length) return rememberVideoTab(remembered[0]);
+      var sameWindow = all.filter(function (t) {
+        return state.lastVideoTab && t.windowId === state.lastVideoTab.windowId;
+      });
+      return rememberVideoTab((sameWindow.length ? sameWindow : all)[0]);
+    }
+
+    if (state.lastVideoTab) {
+      var fresh = (await queryTabs({})).filter(function (t) { return t.id === state.lastVideoTab.id; });
+      if (fresh.length && isVideoTab(fresh[0])) return rememberVideoTab(fresh[0]);
+    }
+    return null;
   }
 
   function parseTimestamp(ts) {
@@ -185,23 +234,55 @@
     return state.backendOnline;
   }
 
+  // 内容脚本可能没注入：Edge 的站点访问权限、扩展刚更新、或从 B 站站内 SPA 路由跳转过来。
+  // 按需补注入再重试一次，避免直接报"无法获取视频信息"（content.js 自带防重复注入）
+  async function ensureContentScript(tabId) {
+    try {
+      if (!chrome.scripting || !chrome.scripting.executeScript) return false;
+      await chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        files: ['content/content.js']
+      });
+      try {
+        await chrome.scripting.insertCSS({ target: { tabId: tabId }, files: ['content/content.css'] });
+      } catch (e) { /* 样式注入失败不影响功能 */ }
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   async function loadVideoInfo() {
+    if (!chrome.tabs || !chrome.tabs.query) {
+      els.videoInfo.innerHTML = '<div class="vi-loading">当前上下文读不到标签页（浏览器限制）。<br>请点工具栏图标打开侧边栏重试。</div>';
+      return false;
+    }
     var tab = await getCurrentTab();
     state.tab = tab;
-    if (!tab || !tab.url) {
-      els.videoInfo.innerHTML = '<div class="vi-loading">请在 B 站视频页面使用</div>';
+    if (!tab || tab.id == null) {
+      els.videoInfo.innerHTML = '<div class="vi-loading">未检测到 B 站视频标签页。<br>请把 B 站视频页切到前台，再点右上角 🔄 刷新。</div>';
+      return false;
+    }
+    if (!tab.url) {
+      els.videoInfo.innerHTML = '<div class="vi-loading">读不到标签页地址（扩展缺少「标签页」权限）。</div>';
       return false;
     }
     if (!/bilibili\.com\/video\//.test(tab.url)) {
-      els.videoInfo.innerHTML = '<div class="vi-loading">请在 B 站视频页面使用</div>';
+      els.videoInfo.innerHTML = '<div class="vi-loading">当前标签页不是 B 站视频页：<br><span class="vi-url">' + escapeHtml(tab.url) + '</span></div>';
       return false;
     }
     var resp = await sendContent(tab.id, { type: 'getVideoInfo' });
     if (!resp.ok || !resp.data || !resp.data.bvid) {
-      els.videoInfo.innerHTML = '<div class="vi-loading">无法获取视频信息，请刷新页面后重试</div>';
+      var injected = await ensureContentScript(tab.id);
+      if (injected) resp = await sendContent(tab.id, { type: 'getVideoInfo' });
+    }
+    if (!resp.ok || !resp.data || !resp.data.bvid) {
+      els.videoInfo.innerHTML = '<div class="vi-loading">已找到视频页，但读不到视频信息（' +
+        escapeHtml(resp.error || '内容脚本无响应') + '）。<br>请刷新 B 站页面后重试。</div>';
       return false;
     }
     state.videoInfo = resp.data;
+    rememberVideoTab(tab);
     els.videoInfo.innerHTML =
       '<div class="vi-title">' + escapeHtml(resp.data.title || '未知标题') + '</div>' +
       '<div class="vi-meta"><span class="vi-bvid">' + escapeHtml(resp.data.bvid) + '</span><span>P' + (resp.data.page || 1) + '</span></div>';
@@ -429,7 +510,11 @@
   }
 
   async function generateNote() {
-    if (!state.videoInfo) return;
+    if (!state.videoInfo || !state.videoInfo.bvid) {
+      // 原来这里直接 return，点了没有任何反应；现在明确告诉用户原因
+      showToast('还没识别到视频，请把 B 站视频页切到前台后点右上角 🔄 重试');
+      return;
+    }
     els.generateBtn.disabled = true;
     els.generateBtn.innerHTML = '<span>⏳ 提交中...</span>';
     try {
@@ -696,7 +781,7 @@
   async function syncToTab(force) {
     var ok = await loadVideoInfo();
     if (!ok) {
-      els.videoInfo.innerHTML = '<div class="vi-loading">请在 B 站视频页面使用</div>';
+      // 不要在这里覆盖 loadVideoInfo 写的具体原因（否则只会看到笼统的"请在 B 站视频页面使用"）
       state.videoInfo = null;
       state.note = null;
       state.noteDetail = null;
@@ -754,7 +839,14 @@
       chrome.tabs.onUpdated.addListener(function (tabId, changeInfo) {
         if (changeInfo && changeInfo.url) followActiveTab();
       });
-      chrome.tabs.onActivated.addListener(function () { followActiveTab(); });
+      chrome.tabs.onActivated.addListener(function (info) {
+        try {
+          chrome.tabs.get(info.tabId, function (t) {
+            if (!chrome.runtime.lastError) rememberVideoTab(t);
+          });
+        } catch (e) { /* 忽略：只是缓存 */ }
+        followActiveTab();
+      });
     } catch (e) { /* 权限不足时退回轮询 */ }
   }
 
@@ -824,8 +916,16 @@
   }
 
   async function captureScreenshot() {
-    if (!state.tab) {
-      showToast('请在 B 站视频页面使用截图功能');
+    if (!state.tab || state.tab.id == null) {
+      // Edge 侧边栏下初次可能没识别到标签页，截图前再兜底找一次
+      var again = await getCurrentTab();
+      if (again) {
+        state.tab = again;
+        if (!state.videoInfo) await loadVideoInfo();
+      }
+    }
+    if (!state.tab || state.tab.id == null) {
+      showToast('未检测到 B 站视频标签页：请切到视频页后重试');
       return;
     }
     els.captureBtn.style.opacity = '0.5';
