@@ -38,15 +38,20 @@
           <span class="sb-label" v-if="!sidebarCollapsed">设置</span>
         </router-link>
       </nav>
+      <!-- 主题切换与侧栏折叠改成上下两行并带文字标签：原来两个图标按钮并排在同一水平线上，容易误点 -->
       <div class="sidebar-footer">
-        <el-tooltip :content="isDark ? '浅色模式' : '深色模式'" placement="right">
-          <button class="sb-theme-btn" @click="toggleTheme">
-            <span>{{ isDark ? '☀️' : '🌙' }}</span>
+        <el-tooltip :content="isDark ? '切换到浅色模式' : '切换到深色模式'" placement="right" :disabled="!sidebarCollapsed">
+          <button class="sb-foot-btn sb-theme-btn" @click="toggleTheme">
+            <span class="sb-foot-icon">{{ isDark ? '☀️' : '🌙' }}</span>
+            <span class="sb-foot-label" v-if="!sidebarCollapsed">{{ isDark ? '浅色模式' : '深色模式' }}</span>
           </button>
         </el-tooltip>
-        <button class="sb-collapse-btn" @click="sidebarCollapsed = !sidebarCollapsed">
-          <span :class="{rotated: sidebarCollapsed}">◀</span>
-        </button>
+        <el-tooltip :content="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'" placement="right" :disabled="!sidebarCollapsed">
+          <button class="sb-foot-btn sb-collapse-btn" @click="sidebarCollapsed = !sidebarCollapsed">
+            <span class="sb-foot-icon"><span :class="{rotated: sidebarCollapsed}">◀</span></span>
+            <span class="sb-foot-label" v-if="!sidebarCollapsed">收起侧边栏</span>
+          </button>
+        </el-tooltip>
       </div>
     </aside>
 
@@ -194,22 +199,29 @@ export default {
 .sb-label { flex: 1; }
 .sb-divider { height: 1px; background: var(--c-border); margin: 8px 4px; }
 .sidebar-footer {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 12px;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px;
   border-top: 1px solid var(--c-border);
 }
-.sb-theme-btn, .sb-collapse-btn {
-  width: 36px; height: 36px;
-  border: none; background: transparent;
-  border-radius: 8px; cursor: pointer;
-  font-size: 16px;
-  display: flex; align-items: center; justify-content: center;
-  transition: background .15s;
-  color: var(--c-text-2);
+.sb-foot-btn {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; height: 38px; padding: 0 10px;
+  border: 1px solid transparent; background: transparent;
+  border-radius: 9px; cursor: pointer;
+  font-size: 13px; color: var(--c-text-2);
+  white-space: nowrap;
+  transition: background .15s, color .15s, border-color .15s;
 }
-.sb-theme-btn:hover, .sb-collapse-btn:hover { background: var(--c-bg-hover, rgba(0,0,0,.04)); }
-.sb-collapse-btn span { display: inline-block; transition: transform .25s; font-size: 12px; }
-.sb-collapse-btn span.rotated { transform: rotate(180deg); }
+.sb-foot-btn:hover { background: var(--c-bg-hover, rgba(0,0,0,.04)); color: var(--c-text); }
+/* 两个按钮做成一眼可区分的两行，避免并排误点 */
+.sb-theme-btn { background: var(--c-bg-soft); }
+.sb-collapse-btn { border-color: var(--c-border); }
+.sb-foot-icon { width: 20px; text-align: center; font-size: 16px; flex-shrink: 0; }
+.sb-foot-label { font-size: 13px; }
+.sb-collapse-btn .sb-foot-icon span { display: inline-block; transition: transform .25s; font-size: 12px; }
+.sb-collapse-btn .sb-foot-icon span.rotated { transform: rotate(180deg); }
+/* 收起状态只剩图标，居中显示 */
+.sidebar.collapsed .sb-foot-btn { justify-content: center; padding: 0; }
 
 /* 主内容区 */
 .app-main {

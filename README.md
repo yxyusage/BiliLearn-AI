@@ -72,7 +72,7 @@
 
 ### 方式一：便携版（Windows，推荐）
 
-从 [Release 页面](https://github.com/yxyusage/BiliLearn-AI/releases/latest) 下载 `BiliLearn-AI-v1.8.2-portable.zip`，解压后双击根目录的 `BiliLearn-AI-Launcher.exe`，点击「启动服务」。
+从 [Release 页面](https://github.com/yxyusage/BiliLearn-AI/releases/latest) 下载 `BiliLearn-AI-v1.8.3-portable.zip`，解压后双击根目录的 `BiliLearn-AI-Launcher.exe`，点击「启动服务」。
 
 启动器会自动完成虚拟环境创建、依赖安装和前端检查，之后启动只需数秒。完成后浏览器自动打开。
 
