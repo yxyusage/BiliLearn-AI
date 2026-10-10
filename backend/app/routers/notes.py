@@ -456,7 +456,8 @@ def generate_formulas(note_id: int, req: FormulaRequest, db: Session = Depends(g
     if not model:
         raise HTTPException(
             status_code=400,
-            detail="所选供应商不支持视觉模型，请使用 DeepSeek（deepseek-flash）、通义千问（qwen-vl-max）或 Kimi（kimi-k2.6）",
+            detail="所选供应商不支持视觉模型，请使用 DeepSeek（deepseek-flash）、OpenAI（gpt-4o）、"
+                   "通义千问（qwen-vl-max）或 Kimi（kimi-k2.6）",
         )
     cfg = resolve_llm_config(db, provider=provider, model=model)
     if cfg["provider"] != "ollama" and not cfg["api_key"]:

@@ -13,15 +13,14 @@ from ..services.settings_store import get_setting, resolve_llm_config, set_setti
 
 router = APIRouter()
 
+# 需要填 Key 的供应商（deepseek / kimi / qwen / openai…）
+# 这里按 PROVIDERS 动态生成，避免以后再加供应商时漏改白名单
+_KEY_PROVIDERS = tuple(p for p, info in PROVIDERS.items() if info.get("need_key"))
+
 _KEYS = (
     "provider",
-    "deepseek_api_key",
-    "kimi_api_key",
-    "qwen_api_key",
-    "deepseek_model",
-    "kimi_model",
-    "qwen_model",
-    "ollama_model",
+    *[p + "_api_key" for p in _KEY_PROVIDERS],
+    *[p + "_model" for p in PROVIDERS],
     "ollama_base_url",
     "enable_whisper",
     "whisper_model",
@@ -46,13 +45,13 @@ def _mask(value: str) -> str:
 @router.get("")
 def get_config(db: Session = Depends(get_db)):
     values = {k: get_setting(db, k) for k in _KEYS}
-    masked = {k: _mask(values.get(k, "")) for k in ("deepseek_api_key", "kimi_api_key", "qwen_api_key")}
+    masked = {p + "_api_key": _mask(values.get(p + "_api_key", "")) for p in _KEY_PROVIDERS}
     return {
         "provider": values.get("provider") or "deepseek",
         "api_keys": masked,
         "models": {
             p: values.get(p + "_model") or PROVIDERS[p]["default_model"]
-            for p in ("deepseek", "kimi", "qwen", "ollama")
+            for p in PROVIDERS
         },
         "ollama_base_url": values.get("ollama_base_url") or PROVIDERS["ollama"]["base_url"],
         "enable_whisper": str(values.get("enable_whisper") or "").lower() in ("1", "true", "on", "yes"),

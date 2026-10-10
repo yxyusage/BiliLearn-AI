@@ -72,7 +72,7 @@
 
 ### 方式一：便携版（Windows，推荐）
 
-从 [Release 页面](https://github.com/yxyusage/BiliLearn-AI/releases/latest) 下载 `BiliLearn-AI-v1.8.4-portable.zip`，解压后双击根目录的 `BiliLearn-AI-Launcher.exe`，点击「启动服务」。
+从 [Release 页面](https://github.com/yxyusage/BiliLearn-AI/releases/latest) 下载 `BiliLearn-AI-v1.8.5-portable.zip`，解压后双击根目录的 `BiliLearn-AI-Launcher.exe`，点击「启动服务」。
 
 启动器会自动完成虚拟环境创建、依赖安装和前端检查，之后启动只需数秒。完成后浏览器自动打开。
 
@@ -164,7 +164,7 @@ Windows 下在终端执行 `ipconfig`，找到对应网卡的 IPv4 地址；若�
 │       └───────────────┬───────────────────────────┘   │
 │                       ▼                                │
 │              LLM 统一封装层                             │
-│              DeepSeek / Kimi / Qwen / Ollama           │
+│              DeepSeek / Kimi / Qwen / OpenAI / Ollama   │
 │                       │                                │
 │                       ▼                                │
 │              SQLite（笔记 / 字幕 / 错题 / 配置）         │
@@ -255,7 +255,8 @@ BiliLearn-AI/
 | --- | --- | --- | --- |
 | DeepSeek | platform.deepseek.com | deepseek-chat | 综合成本低，推荐 |
 | Kimi | platform.moonshot.cn | kimi-k2.6 | 上下文窗口大，适合长视频 |
-| 通义千问 | 阿里云百炼 | qwen-plus | 支持视觉模型 |
+| 通义千问 | 阿里云百炼 | qwen-plus | 视觉用 qwen-vl-max |
+| OpenAI | platform.openai.com | gpt-4o-mini | 视觉用 gpt-4o，模型质量稳定 |
 | Ollama | 本地运行，无需 Key | qwen2.5:7b | 完全离线 |
 
 接口地址与模型名均可在设置中覆盖，因此也兼容任何 OpenAI 协议格式的第三方中转服务。

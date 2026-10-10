@@ -307,6 +307,7 @@
                     <div class="formula-gen">
                       <el-select v-model="visionProvider" size="small" style="width: 220px">
                         <el-option label="DeepSeek Flash（视觉，推荐）" value="deepseek" />
+                        <el-option label="OpenAI GPT-4o（视觉）" value="openai" />
                         <el-option label="通义千问 qwen-vl-max" value="qwen" />
                         <el-option label="Kimi K2（视觉）" value="kimi" />
                       </el-select>

@@ -25,6 +25,7 @@ jobs:
           python backend/tests/test_bili_cookie.py
           python backend/tests/test_whisper_hf.py
           python backend/tests/test_fastdeps.py
+          python backend/tests/test_providers.py
 
   frontend:
     runs-on: ubuntu-latest

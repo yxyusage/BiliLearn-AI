@@ -155,13 +155,14 @@ Base URL：`http://localhost:8000/api`
 
 ### POST /config/set
 保存配置项（provider / *_api_key / *_model / ollama_base_url / enable_whisper / whisper_model / whisper_language）。
+供应商有 deepseek / kimi / qwen / openai / ollama，各自对应 `<供应商>_api_key` 与 `<供应商>_model`。
 
 ### GET /config 响应（节选）
 ```json
 {
   "provider": "deepseek",
   "api_keys": { "deepseek_api_key": "sk-3a****dbbe" },
-  "models": { "deepseek": "deepseek-v4-pro", "kimi": "kimi-k2.6" },
+  "models": { "deepseek": "deepseek-chat", "kimi": "kimi-k2.6", "openai": "gpt-4o-mini" },
   "ollama_base_url": "http://localhost:11434",
   "enable_whisper": true,
   "whisper_model": "base",

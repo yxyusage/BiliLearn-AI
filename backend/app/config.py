@@ -89,9 +89,12 @@ class Settings(BaseSettings):
     deepseek_api_key: str = ""
     kimi_api_key: str = ""
     qwen_api_key: str = ""
+    openai_api_key: str = ""
     # 可选：覆盖默认模型名与接口地址（如启动器注入 BILI_DEEPSEEK_MODEL / BILI_DEEPSEEK_BASE_URL）
     deepseek_model: str = ""
     deepseek_base_url: str = ""
+    openai_model: str = ""
+    openai_base_url: str = ""
     ollama_base_url: str = "http://localhost:11434"
 
     # 长字幕分段的最大字符数（应对上下文窗口限制）

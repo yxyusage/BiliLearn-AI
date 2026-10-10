@@ -1,5 +1,22 @@
 # 更新日志
 
+## v1.8.5 (2026-10-10) — 新增 OpenAI 供应商 + 修复「提取板书公式」默认选项必然失败
+
+### 新增
+- **新增 OpenAI 供应商**（设置 → 大模型供应商）：默认模型 `gpt-4o-mini`，板书/公式识别用 `gpt-4o`（支持图片输入）；Key 申请地址 platform.openai.com
+- 也可用环境变量 `BILI_OPENAI_API_KEY` 配置
+- 「公式板书」页签的视觉模型下拉新增「OpenAI GPT-4o（视觉）」
+
+### 修复
+- **「提取板书公式」默认选中的「DeepSeek Flash（视觉，推荐）」必然报错**：`FormulaRequest.model` 为空时后端取 `VISION_MODELS[provider]`，而 DeepSeek 的 `vision_model` 一直是空的，于是每次都返回「所选供应商不支持视觉模型」。现补上 `deepseek-flash`，与 CHANGELOG 和界面文案里一直写着的行为一致。
+  （如果 DeepSeek 账号实际不支持该模型，改选 通义千问 / Kimi / OpenAI 即可）
+- 供应商相关的写死列表全部改成按 `PROVIDERS` 动态生成（配置白名单、Key 掩码、models 列表、前端"保存哪些模型"），以后再加供应商不会漏改
+- 设置页「如何获取 API Key」里 DeepSeek 的默认模型写成了早已废弃的 `deepseek-v4-pro`，已更正为 `deepseek-chat`
+
+### 工程
+- 新增 `backend/tests/test_providers.py`：OpenAI 注册信息、配置白名单必须覆盖所有供应商、视觉模型表必须覆盖 DeepSeek/OpenAI、`build_llm` 行为（CI 一并执行）
+- 版本号 1.8.4 → 1.8.5
+
 ## v1.8.4 (2026-10-10) — 修复 Edge 侧边栏"识别不到当前视频"（插件 2.2.0）
 
 ### 问题

@@ -1,4 +1,4 @@
-"""OpenAI 兼容协议客户端（DeepSeek / Kimi / 通义千问）。"""
+"""OpenAI 兼容协议客户端（DeepSeek / Kimi / 通义千问 / OpenAI）。"""
 import json
 from typing import Any, Dict, List
 

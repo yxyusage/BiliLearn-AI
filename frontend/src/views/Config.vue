@@ -113,7 +113,8 @@
       <el-collapse class="key-help">
         <el-collapse-item title="如何获取 API Key？（点开查看）" name="help">
           <ul class="key-help-list">
-            <li><b>DeepSeek</b>：platform.deepseek.com，默认 <code>deepseek-v4-pro</code>，视觉公式识别自动改用 <code>deepseek-flash</code>。</li>
+            <li><b>DeepSeek</b>：platform.deepseek.com，默认 <code>deepseek-chat</code>；板书/公式识别用 <code>deepseek-flash</code>。</li>
+            <li><b>OpenAI</b>：platform.openai.com，默认 <code>gpt-4o-mini</code>；板书/公式识别用 <code>gpt-4o</code>（支持图片输入）。</li>
             <li><b>Kimi（Moonshot）</b>：platform.kimi.com，默认 <code>kimi-k2.6</code>，支持视觉与 256k 长上下文。</li>
             <li><b>通义千问</b>：阿里云百炼 DashScope（兼容模式），视觉用 <code>qwen-vl-max</code>。</li>
             <li><b>Ollama</b>：本地模型，无需 Key。先安装 Ollama 并运行 <code>ollama serve</code>，再 <code>ollama pull qwen2.5:7b</code>。</li>
@@ -306,8 +307,8 @@ export default {
       provider: 'deepseek',
       providers: [],
       apiKeys: {},
-      keys: { deepseek: '', kimi: '', qwen: '' },
-      models: { deepseek: '', kimi: '', qwen: '', ollama: '' },
+      keys: { deepseek: '', kimi: '', qwen: '', openai: '' },
+      models: { deepseek: '', kimi: '', qwen: '', openai: '', ollama: '' },
       origModels: {},
       savedKeys: {},
       ollamaBaseUrl: '',
@@ -456,8 +457,9 @@ export default {
             self.savedKeys[id] = true
           }
         }
-        // 只写被改动过的模型名，避免把默认值也固化进设置
-        var provIds = ['deepseek', 'kimi', 'qwen', 'ollama']
+        // 只写被改动过的模型名，避免把默认值也固化进设置；供应商列表来自后端，新增供应商无需改这里
+        var provIds = this.providers.map(function (p) { return p.id })
+        if (!provIds.length) provIds = ['deepseek', 'kimi', 'qwen', 'openai', 'ollama']
         for (var j = 0; j < provIds.length; j++) {
           var pid = provIds[j]
           var val = self.models[pid] || ''

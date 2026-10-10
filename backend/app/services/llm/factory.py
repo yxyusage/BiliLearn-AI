@@ -10,7 +10,9 @@ PROVIDERS: Dict[str, Dict[str, Any]] = {
         "name": "DeepSeek",
         "base_url": "https://api.deepseek.com/v1",
         "default_model": "deepseek-chat",
-        "vision_model": "",
+        # 公式/板书识别用的视觉模型（此前这里为空，导致前端默认选中的
+        # "DeepSeek Flash（视觉，推荐）" 必然报「所选供应商不支持视觉模型」）
+        "vision_model": "deepseek-flash",
         "kind": "openai",
         "need_key": True,
         "key_url": "https://platform.deepseek.com/api_keys",
@@ -32,6 +34,16 @@ PROVIDERS: Dict[str, Dict[str, Any]] = {
         "kind": "openai",
         "need_key": True,
         "key_url": "https://bailian.console.aliyun.com/?apiKey=1",
+    },
+    "openai": {
+        "name": "OpenAI",
+        "base_url": "https://api.openai.com/v1",
+        "default_model": "gpt-4o-mini",
+        # 板书/公式截图识别用视觉模型（gpt-4o 系列都支持图片输入）
+        "vision_model": "gpt-4o",
+        "kind": "openai",
+        "need_key": True,
+        "key_url": "https://platform.openai.com/api-keys",
     },
     "ollama": {
         "name": "Ollama 本地模型",
