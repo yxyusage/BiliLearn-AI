@@ -12,6 +12,7 @@
 import os
 import tempfile
 import threading
+import time
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -62,12 +63,55 @@ def resolve_endpoints(mode: str = "") -> List[Tuple[str, str]]:
     return [(mode, mode)]
 
 
+def harden_hf_env() -> None:
+    """让 HuggingFace 模型下载在「国内镜像 + 公共模型」场景下更可靠。
+
+    三个已知坑（用户实际报过 / 本地实测）：
+
+    1. **Xet 协议**：huggingface_hub 1.x 对大文件走新的 Xet 存储（hf_xet），
+       而镜像站不代理 Xet —— 大文件会去连真实的 cas-server.xethub.hf.co 并
+       返回 401 Unauthorized（报错形如
+       "File reconstruction error: CAS Client Error: ... 401 Unauthorized,
+       domain: https://cas-server.xethub.hf.co/..."）。
+       下载公共模型用普通 HTTPS 就够了，所以直接关掉 Xet。
+    2. **隐式 token**：本机 hf 缓存里若有失效 token，下载公共仓库反而会 401，禁用它。
+    3. **下载超时**：默认只有 10 秒，国内慢网很容易断，放宽到 60 秒。
+
+    全部用 setdefault / 只往放宽的方向改：用户自己设过就尊重用户。
+    """
+    os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+    os.environ.setdefault("HF_HUB_DISABLE_IMPLICIT_TOKEN", "1")
+    os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "60")
+    os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "30")
+    def _truthy(name: str, default: str = "1") -> bool:
+        return str(os.environ.get(name, default)).strip().lower() in ("1", "true", "yes", "on")
+
+    try:
+        import huggingface_hub.constants as hf_const
+
+        # constants 是「导入时读一次环境变量」，已导入的情况下要同步补丁才生效。
+        # 值取自环境变量本身，这样用户显式写成 0/false 时不会被我们强行打开。
+        hf_const.HF_HUB_DISABLE_XET = _truthy("HF_HUB_DISABLE_XET")
+        hf_const.HF_HUB_DISABLE_IMPLICIT_TOKEN = _truthy("HF_HUB_DISABLE_IMPLICIT_TOKEN")
+        if getattr(hf_const, "HF_HUB_DOWNLOAD_TIMEOUT", 10) < 60:
+            hf_const.HF_HUB_DOWNLOAD_TIMEOUT = 60
+        if getattr(hf_const, "HF_HUB_ETAG_TIMEOUT", 10) < 30:
+            hf_const.HF_HUB_ETAG_TIMEOUT = 30
+    except Exception:  # noqa: BLE001  huggingface_hub 没装时不影响其它功能
+        pass
+
+
+# 模块导入即生效，越早越好
+harden_hf_env()
+
+
 def apply_endpoint(endpoint: str) -> None:
     """让后续的 HuggingFace 下载走指定端点。
 
     huggingface_hub 的 constants.ENDPOINT 是「导入时读一次环境变量」，
     所以除了写环境变量，还要在已导入的情况下同步补丁模块常量，否则重试无效。
     """
+    harden_hf_env()  # 每次切换端点都确保加固项还在（别被其它库覆盖掉）
     if endpoint:
         os.environ["HF_ENDPOINT"] = endpoint
     else:
@@ -178,6 +222,26 @@ def transcribe_file(path: str, model_name: Optional[str] = None, language: Optio
     return _decode(path, model_name, language, endpoint_mode)
 
 
+def _download_audio_with_retry(url: str, ydl_opts: dict, attempts: int = 3) -> None:
+    """下载音轨，失败自动重试。
+
+    yt-dlp 默认的 socket 读超时只有 20 秒，B站音频流稍微卡一下就会
+    "The read operation timed out" 直接失败；加上重试后同一篇笔记不必重头再来
+    （yt-dlp 会续传 .part 文件）。
+    """
+    last: Optional[Exception] = None
+    for i in range(attempts):
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+            return
+        except Exception as exc:  # noqa: BLE001
+            last = exc
+            if i < attempts - 1:
+                time.sleep(2 * (i + 1))
+    raise RuntimeError(last)
+
+
 def transcribe(bvid: str, page: int = 1, model_name: Optional[str] = None, language: Optional[str] = None,
                cookie: str = "", endpoint_mode: str = "") -> List[dict]:
     url = "https://www.bilibili.com/video/" + bvid + "?p=" + str(page or 1)
@@ -190,6 +254,13 @@ def transcribe(bvid: str, page: int = 1, model_name: Optional[str] = None, langu
             # 直接下载音轨（DASH m4a 单流），无需 ffmpeg 合并/转码
             "format": "bestaudio[ext=m4a]/bestaudio/best",
             "outtmpl": os.path.join(tmp, "audio.%(ext)s"),
+            # 网络加固：默认读超时 20 秒、重试次数少，音频流卡一下就整篇失败
+            "socket_timeout": 60,
+            "retries": 10,
+            "fragment_retries": 10,
+            "extractor_retries": 5,
+            "file_access_retries": 3,
+            "continuedl": True,  # 保留 .part，重试时能续传
             "http_headers": {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
                 "Referer": "https://www.bilibili.com/",
@@ -200,14 +271,12 @@ def transcribe(bvid: str, page: int = 1, model_name: Optional[str] = None, langu
         if cooked:
             ydl_opts["cookiefile"] = cooked
         try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
+            _download_audio_with_retry(url, ydl_opts)
         except Exception as exc:  # noqa: BLE001
             if has_proxy_env():
                 saved = clear_proxy_env()
                 try:
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        ydl.download([url])
+                    _download_audio_with_retry(url, ydl_opts)
                 except Exception as exc2:  # noqa: BLE001
                     raise RuntimeError("音频下载失败：" + str(exc2)) from exc2
                 finally:

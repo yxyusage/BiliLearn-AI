@@ -20,7 +20,7 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 import fastdeps  # noqa: E402
 
-VERSION = "1.8.6"
+VERSION = "1.8.7"
 APP_NAME = "BiliLearn-AI"
 GITHUB_REPO = "yxyusage/BiliLearn-AI"
 DEFAULT_PORT = 8000
@@ -525,6 +525,10 @@ class ServiceManager:
         env["PYTHONUNBUFFERED"] = "1"
         # 语音识别模型默认走国内镜像（与 start.ps1 / start.sh 一致；用户自己设过就尊重用户）
         env.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+        # 镜像不代理 Xet 协议（大文件会 401），公共模型也无需 token，超时放宽到 60s
+        env.setdefault("HF_HUB_DISABLE_XET", "1")
+        env.setdefault("HF_HUB_DISABLE_IMPLICIT_TOKEN", "1")
+        env.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "60")
         if config.get("api_key"):
             env["BILI_DEEPSEEK_API_KEY"] = config["api_key"]
         if config.get("base_url"):

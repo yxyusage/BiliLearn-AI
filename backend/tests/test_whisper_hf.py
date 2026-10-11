@@ -98,6 +98,77 @@ def test_model_download_error_is_not_network_error():
     print("not-network-error OK")
 
 
+def test_harden_hf_env():
+    """镜像不代理 Xet（大文件会 401），公共模型也无需 token，超时默认只有 10 秒。"""
+    from backend.app.services import whisper as w
+
+    os.environ.pop("HF_HUB_DISABLE_XET", None)
+    os.environ.pop("HF_HUB_DISABLE_IMPLICIT_TOKEN", None)
+    os.environ.pop("HF_HUB_DOWNLOAD_TIMEOUT", None)
+    w.harden_hf_env()
+    assert os.environ["HF_HUB_DISABLE_XET"] == "1"
+    assert os.environ["HF_HUB_DISABLE_IMPLICIT_TOKEN"] == "1"
+    assert os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] == "60"
+    try:
+        import huggingface_hub.constants as hf_const
+
+        # 已导入的情况下必须同步补丁常量，否则关了也没用
+        assert hf_const.HF_HUB_DISABLE_XET is True
+        assert hf_const.HF_HUB_DISABLE_IMPLICIT_TOKEN is True
+        assert hf_const.HF_HUB_DOWNLOAD_TIMEOUT >= 60
+    except ImportError:
+        pass
+    _clear_env()
+    print("harden-hf-env OK")
+
+
+def test_audio_download_retries():
+    """B站音频流读超时不该让整篇笔记失败：失败要能自动重试。"""
+    from backend.app.services import whisper as w
+
+    calls = []
+
+    class FakeYDL:
+        def __init__(self, opts):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def download(self, urls):
+            calls.append(urls)
+            if len(calls) < 3:
+                raise RuntimeError("ERROR: [download] Got error: The read operation timed out")
+
+    original_ydl = w.yt_dlp.YoutubeDL
+    original_sleep = w.time.sleep
+    w.yt_dlp.YoutubeDL = FakeYDL
+    w.time.sleep = lambda _s: None  # 测试里别真等
+    try:
+        w._download_audio_with_retry("https://example.com/video", {"quiet": True})
+        assert len(calls) == 3, calls
+        # 全部失败时必须抛出（由上层记成网络中断，而不是静默成功）
+        calls.clear()
+
+        class AlwaysFail(FakeYDL):
+            def download(self, urls):
+                raise RuntimeError("The read operation timed out")
+
+        w.yt_dlp.YoutubeDL = AlwaysFail
+        try:
+            w._download_audio_with_retry("https://example.com/video", {}, attempts=2)
+            raise AssertionError("应当抛出异常")
+        except RuntimeError:
+            pass
+    finally:
+        w.yt_dlp.YoutubeDL = original_ydl
+        w.time.sleep = original_sleep
+    print("audio-retry OK")
+
+
 def test_model_helpers():
     assert whisper.model_repo_id("base") == "Systran/faster-whisper-base"
     assert whisper.model_cached("definitely-not-a-real-model-xyz") is False
@@ -112,6 +183,8 @@ if __name__ == "__main__":
         test_load_model_falls_back_to_mirror()
         test_load_model_reports_actionable_error()
         test_model_download_error_is_not_network_error()
+        test_harden_hf_env()
+        test_audio_download_retries()
         test_model_helpers()
     finally:
         _clear_env()

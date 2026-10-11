@@ -72,7 +72,7 @@
 
 ### 方式一：便携版（Windows，推荐）
 
-从 [Release 页面](https://github.com/yxyusage/BiliLearn-AI/releases/latest) 下载 `BiliLearn-AI-v1.8.6-portable.zip`，解压后双击根目录的 `BiliLearn-AI-Launcher.exe`，点击「启动服务」。
+从 [Release 页面](https://github.com/yxyusage/BiliLearn-AI/releases/latest) 下载 `BiliLearn-AI-v1.8.7-portable.zip`，解压后双击根目录的 `BiliLearn-AI-Launcher.exe`，点击「启动服务」。
 
 启动器会自动完成虚拟环境创建、依赖安装和前端检查，之后启动只需数秒。完成后浏览器自动打开。
 
@@ -298,6 +298,14 @@ BiliLearn-AI/
 
 **模型下载到哪了？想重下怎么办？**
 默认在 `~/.cache/huggingface/hub`（Windows 为 `C:\Users\你的用户名\.cache\huggingface\hub`），`base` 约 150MB。删掉 `models--Systran--faster-whisper-*` 目录即可重新下载。
+
+**镜像我设好了，模型下载还是失败，报错里有 `cas-server.xethub.hf.co` 和 `401 Unauthorized`？**
+这是 HuggingFace 新的 **Xet** 存储协议：`huggingface_hub` 1.x 下载大文件会走 Xet，而**国内镜像站不代理 Xet** —— 于是去连真实的 `cas-server.xethub.hf.co` 并返回 401。表现就是"镜像明明生效了、小文件能下，大权重却 401"。
+**v1.8.7 起程序会自动禁用 Xet**（同时禁用隐式 token、把下载超时从 10 秒放宽到 60 秒），不用手动处理。旧版本可以自己设环境变量 `HF_HUB_DISABLE_XET=1` 后重启程序。
+
+**生成到一半提示「网络中断（B站音频/视频下载超时）」？**
+那是从 B 站拉音轨时网络抖动（yt-dlp 默认读超时只有 20 秒）。**v1.8.7 起**已把读超时放宽到 60 秒、重试次数拉满，并在外层再加 3 次自动重试（支持断点续传），单次抖动不会再让整篇笔记失败。
+遇到时点「重新生成」即可；单个视频不会自动继续（只有合集任务支持"继续未完成的集数"）。
 
 **解析视频报 `HTTP Error 412: Precondition Failed`？**
 这不是本项目的问题，是 **B站的风控**（同一链接换网络/IP 就好了，很典型）。常见触发原因是出口 IP 被标记（代理/VPN/机房或共享 NAT）或请求过于频繁。可尝试：

@@ -7,6 +7,12 @@ cd "$(dirname "$0")"
 # 已经自己设过 HF_ENDPOINT 就尊重用户设置（也可在网页「设置 → 模型下载源」里改）。
 export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 
+# HuggingFace 下载加固：镜像不代理 Xet 协议（大文件会去连 xethub 并 401），
+# 公共模型也不需要 token；默认下载超时只有 10 秒，国内慢网容易断。
+export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
+export HF_HUB_DISABLE_IMPLICIT_TOKEN="${HF_HUB_DISABLE_IMPLICIT_TOKEN:-1}"
+export HF_HUB_DOWNLOAD_TIMEOUT="${HF_HUB_DOWNLOAD_TIMEOUT:-60}"
+
 echo "============================================"
 echo "  BiliLearn-AI 一键启动（首次运行需几分钟）"
 echo "============================================"

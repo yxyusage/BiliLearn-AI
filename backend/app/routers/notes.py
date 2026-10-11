@@ -237,7 +237,15 @@ def _run_generation(note_id: int, llm_cfg: dict):
                 note.error = str(exc)
             elif _is_network_error(exc):
                 note.status = "pending"
-                note.error = "网络中断，待恢复后继续：" + str(exc)[:200]
+                if note.batch_id:
+                    # 合集任务可以「继续未完成的集数」，这个说法是准确的
+                    note.error = "网络中断，待恢复后继续：" + str(exc)[:200]
+                else:
+                    # 单个视频没有"自动继续"，别再写"待恢复后继续"让人干等
+                    note.error = (
+                        "网络中断（B站音频/视频下载超时），已自动重试仍失败。"
+                        "点「重新生成」再试一次即可；若反复失败，换个网络或稍后再试。详情：" + str(exc)[:160]
+                    )
             else:
                 note.status = "failed"
                 note.error = str(exc)

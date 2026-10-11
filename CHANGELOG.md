@@ -1,5 +1,30 @@
 # 更新日志
 
+## v1.8.7 (2026-10-10) — 修复镜像下的 Xet 401（模型下载）+ B站音频下载超时
+
+### 问题（用户反馈）
+设置好镜像后，语音模型下载仍然失败：
+`Task error: File reconstruction error: CAS Client Error: Request error: HTTP status client error (401 Unauthorized), domain: https://cas-server.xethub.hf.co/...`
+另有生成中断：`音频下载失败：ERROR: [download] Got error: The read operation timed out`
+
+### 根因
+1. **Xet 401**：`huggingface_hub` 1.x 对大文件改走新的 **Xet** 存储协议（`hf_xet`），而**镜像站不代理 Xet** —— 下载大文件时会去连真实的 `cas-server.xethub.hf.co` 并返回 401。所以会出现"镜像已生效"却"模型仍下载失败"：小文件正常、大权重 401。
+2. **音频下载超时**：yt-dlp 默认 socket 读超时只有 20 秒，且原先没有配置任何重试，B站音频流稍微卡一下整篇笔记就失败。
+
+### 修复
+- 下载模型前**自动加固 HuggingFace 环境**（`whisper.harden_hf_env()`，模块导入即生效，并同步补丁 `huggingface_hub.constants`——它是导入时读一次环境变量，不补丁则无效）：
+  - `HF_HUB_DISABLE_XET=1`：关掉 Xet 走普通 HTTPS（公共模型够用且镜像兼容）
+  - `HF_HUB_DISABLE_IMPLICIT_TOKEN=1`：本机缓存里若有失效 token，下载公共仓库反而会 401
+  - `HF_HUB_DOWNLOAD_TIMEOUT=60`、`HF_HUB_ETAG_TIMEOUT=30`：默认仅 10 秒，慢网易断
+  - 全部 setdefault / 只往放宽方向改，**用户显式设置会被尊重**（写 0 就不会被强行打开）
+- `start.ps1` / `start.sh` / 图形启动器同样注入这些变量
+- **B站音频下载加固**：`socket_timeout` 20→60 秒、`retries`/`fragment_retries` 10 次、`extractor_retries` 5 次、保留 `.part` 支持续传；外层再加 **3 次自动重试**（退避 2s/4s）
+- 单个视频的网络中断提示不再写「待恢复后继续」（它不会自动继续，只有合集任务会），改为「网络中断（B站音频/视频下载超时），已自动重试仍失败。点「重新生成」再试一次即可…」
+
+### 工程
+- `test_whisper_hf.py` 新增：`harden_hf_env()` 必须同时改环境变量与 huggingface_hub 常量；音频下载失败必须自动重试、且全部失败时必须抛错
+- 版本号 1.8.6 → 1.8.7
+
 ## v1.8.6 (2026-10-10) — 修复 Edge 下「读不到视频信息」（插件 2.3.0）
 
 ### 问题
