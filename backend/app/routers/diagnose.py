@@ -11,6 +11,7 @@ HF 端点、Xet、字幕、音频下载、LLM Key 任何一环出问题，表现
 """
 import os
 import platform
+import re
 import time
 from typing import Dict, List, Optional
 
@@ -314,9 +315,15 @@ def diagnose(request: Request,
              page: int = Query(1, description="分P"),
              deep: bool = Query(False, description="深度检测：会调用一次大模型并试拉一段音频"),
              db: Session = Depends(get_db)):
-    bvid = (bvid or "").strip()
-    if bvid and not bvid.upper().startswith("BV"):
-        bvid = "BV" + bvid if bvid.isalnum() else bvid
+    # 用户可能填 BV 号，也可能直接粘贴完整链接甚至 b23.tv 短链——统一归一化；
+    # 链接里若带 ?p=7（短链展开后常带），调用方又没指定分P，就跟着链接走
+    raw_input = (bvid or "").strip()
+    expanded = bilibili.normalize_video_input(raw_input) if raw_input else ""
+    bvid = bilibili.extract_bvid(expanded) or raw_input
+    if bvid and (not page or page <= 1):
+        m = re.search(r"[?&]p=([0-9]+)", expanded or "")
+        if m:
+            page = int(m.group(1))
     items: List[Dict[str, str]] = [
         check_runtime(request),
         check_data_dir(),

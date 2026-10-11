@@ -293,7 +293,7 @@
       <div class="diag-bar">
         <el-input
           v-model="diagBvid"
-          placeholder="可选：填 BV 号检测某个视频（如 BV1YE411D7nH）"
+          placeholder="可选：粘贴视频链接或 BV 号检测某个视频（支持 b23.tv 短链）"
           clearable
         />
         <el-checkbox v-model="diagDeep" class="diag-deep">深度检测</el-checkbox>
