@@ -48,6 +48,8 @@
 
 **复习与自测**
 - 合集复习资料：将多集笔记按知识逻辑（而非视频顺序）蒸馏重排，导出可打印 PDF / Word，含目录页码、学习目标、易混辨析、章节测试、答案、术语索引和速记卡
+  - **详版（默认）**：先排大纲、再**逐章生成**，几十集的长合集每章也能写足细节（进度显示"逐章生成 3/12"）
+  - **简版**：一次调用成型，快且便宜，适合集数少的合集
 - 自测题支持单选、判断、填空、计算、简答，可手动生成、生成变式题
 - 基于笔记上下文的 AI 答疑，支持多轮对话
 - 错题自动归集
@@ -72,7 +74,7 @@
 
 ### 方式一：便携版（Windows，推荐）
 
-从 [Release 页面](https://github.com/yxyusage/BiliLearn-AI/releases/latest) 下载 `BiliLearn-AI-v1.8.9-portable.zip`，解压后双击根目录的 `BiliLearn-AI-Launcher.exe`，点击「启动服务」。
+从 [Release 页面](https://github.com/yxyusage/BiliLearn-AI/releases/latest) 下载 `BiliLearn-AI-v1.8.10-portable.zip`，解压后双击根目录的 `BiliLearn-AI-Launcher.exe`，点击「启动服务」。
 
 启动器会自动完成虚拟环境创建、依赖安装和前端检查，之后启动只需数秒。完成后浏览器自动打开。
 

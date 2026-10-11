@@ -554,3 +554,83 @@ def build_review_prompt(course_title: str, subject: str, distilled_notes: str):
 def review_material_prompt(course_title: str, subject: str, distilled_notes: str):
     system, user = build_review_prompt(course_title, subject, distilled_notes)
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+# ---------------------------------------------------------------- 复习资料：三步生成
+# 一次性把几十集笔记压成一份资料时，输入太大、输出又有上限，模型只能把每章写成概览。
+# 所以「详版」拆成三步：① 只看每集标题/关键点排大纲 → ② 每章单独写（只处理这一章对应的
+# 几集，细节写得下）→ ③ 只补全局信息（封面/总览/复习指南）。
+
+REVIEW_OUTLINE_SYSTEM = r"""
+你是「BiliLearn-AI」资深教材编审。现在**只做一件事**：为一份复习资料排章节目录。
+【输入】课程合集里每集的编号、标题与关键知识点。
+【输出契约】只输出一个合法 JSON 对象，禁止 Markdown 代码块、解释、前后缀：
+{
+  "title": "复习资料标题",
+  "chapters": [
+    {"title": "第一章 章节名", "intro": "一句话导读", "episodes": [1, 3, 5]}
+  ]
+}
+【排章原则】
+1. 按**知识逻辑**重排，绝不按视频顺序照搬。
+2. 同一主题的多集归入同一章，episodes 填它们的集号（整数数组）。
+3. 每一集都要出现在至少一章里，不要遗漏。
+4. 章数由内容量决定：集数少 3-6 章；集数多（20 集以上）10-20 章，必要时更多，
+   但**同一章不要超过 8 集**，宁可多分几章。
+5. 章节标题要具体（体现知识点），不要写"第一章 概述"这种空标题。
+"""
+
+REVIEW_WRAPUP_SYSTEM = r"""
+你是「BiliLearn-AI」资深教材编审。各章正文已经写好，现在**只补全局信息**。
+【输出契约】只输出一个合法 JSON 对象，禁止 Markdown 代码块、解释、前后缀：
+{
+  "title": "复习资料标题（会印在封面）",
+  "subject": "学科英文代号",
+  "overview": "3-5 句：覆盖什么、适合谁、怎么用",
+  "usage_guide": "三轮复习指南：基础一轮 / 强化二轮 / 冲刺三轮，各轮目标与建议时长"
+}
+【原则】不要复述各章内容，不要输出 chapters / answers / appendix。
+"""
+
+
+def review_outline_prompt(course_title: str, subject: str, episodes_digest: str):
+    tpl = SUBJECT_TEMPLATES.get(subject, SUBJECT_TEMPLATES["general"])
+    system = REVIEW_OUTLINE_SYSTEM + "\n\n【学科特点（供分章参考）】\n" + tpl
+    user = (
+        "合集《" + (course_title or "未命名课程") + "》（学科：" + subject + "）"
+        "各集编号/标题/关键点 JSON：\n" + episodes_digest + "\n\n"
+        "请排出这份复习资料的章节目录，只输出 JSON。"
+    )
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+def review_chapter_prompt(course_title: str, subject: str, chapter_plan: dict,
+                          episodes_json: str, index: int, total: int):
+    tpl = SUBJECT_TEMPLATES.get(subject, SUBJECT_TEMPLATES["general"])
+    system = REVIEW_MATERIAL_SYSTEM + "\n\n" + tpl
+    user = (
+        "合集《" + (course_title or "未命名课程") + "》（学科：" + subject + "）\n"
+        "这是全书的第 " + str(index) + " / " + str(total) + " 章：「"
+        + str(chapter_plan.get("title") or "") + "」，导读：" + str(chapter_plan.get("intro") or "") + "\n"
+        "本章对应各集笔记蒸馏版 JSON：\n" + episodes_json + "\n\n"
+        "请**只写这一章**，只输出一个 JSON 对象，结构如下：\n"
+        "{\n"
+        '  "chapter": { 与上面契约中的单个 chapter 完全一致：title / intro / learning_objectives / '
+        'sections / confusion_points / summary / key_points / quiz },\n'
+        '  "answers": [{"no": 1, "answer": "", "explanation": ""}],\n'
+        '  "appendix": {"formula_sheet": [{"name": "", "latex": "", "scene": ""}], '
+        '"glossary": [{"term": "", "definition": "", "chapter": ""}], '
+        '"flash_cards": [{"front": "", "back": ""}]}\n'
+        "}\n"
+        "要求：本章内容要写足（小节、公式、例题、代码、对比表格按契约给全，不要因为只有一章就写简略）；"
+        "quiz 8-12 题；answers 与 quiz 的 no 一一对应；appendix 只收本章相关的公式/术语/记忆卡。"
+    )
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+def review_wrapup_prompt(course_title: str, subject: str, chapter_titles: str):
+    user = (
+        "合集《" + (course_title or "未命名课程") + "》（学科：" + subject + "）\n"
+        "各章标题：" + chapter_titles + "\n\n请补齐全局信息，只输出 JSON。"
+    )
+    return [{"role": "system", "content": REVIEW_WRAPUP_SYSTEM}, {"role": "user", "content": user}]

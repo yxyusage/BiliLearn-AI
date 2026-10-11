@@ -151,6 +151,7 @@ class ReviewMaterial(Base):
     title = Column(String(512), default="")
     subject = Column(String(32), default="general")
     status = Column(String(32), default="running")  # running/done/failed
+    detail = Column(String(16), default="full")      # full=详版（逐章生成）/ brief=简版（一次成型）
     progress = Column(String(128), default="")       # 当前进度描述
     error = Column(Text, default="")
     result_json = Column(Text, default="")           # 复习资料 JSON

@@ -59,6 +59,11 @@ def run_migrations() -> None:
         if note_cols and "learning_status" not in note_cols:
             conn.execute(text("ALTER TABLE notes ADD COLUMN learning_status TEXT DEFAULT 'unlearned'"))
             conn.commit()
+        # v1.8.10：review_materials.detail（详版逐章生成 / 简版一次成型）
+        mat_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(review_materials)"))]
+        if mat_cols and "detail" not in mat_cols:
+            conn.execute(text("ALTER TABLE review_materials ADD COLUMN detail VARCHAR(16) DEFAULT 'full'"))
+            conn.commit()
         # v1.8.0：notes.source / local_path 本地视频笔记
         if note_cols and "source" not in note_cols:
             conn.execute(text("ALTER TABLE notes ADD COLUMN source VARCHAR(16) DEFAULT 'bilibili'"))

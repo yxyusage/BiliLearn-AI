@@ -18,6 +18,9 @@ router = APIRouter()
 
 class StartRequest(BaseModel):
     collection_job_id: int
+    # full=详版：先排大纲再逐章生成，长合集每章也能写足；
+    # brief=简版：一次调用直接成型（快、便宜，但长合集每章会比较简略）
+    detail: str = "full"
 
 
 @router.post("/start")
@@ -37,10 +40,12 @@ def start_review_material(req: StartRequest, db: Session = Depends(get_db)):
     )
     if existing:
         return {"id": existing.id, "status": "running", "message": "已有正在生成的复习资料"}
+    detail = "brief" if str(req.detail or "").strip().lower() in ("brief", "simple", "简版") else "full"
     mat = ReviewMaterial(
         collection_job_id=req.collection_job_id,
         title=job.title + " 复习资料",
         subject=job.subject,
+        detail=detail,
         status="running",
         progress="初始化…",
     )
@@ -49,8 +54,8 @@ def start_review_material(req: StartRequest, db: Session = Depends(get_db)):
     db.refresh(mat)
     llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg.get("model"), llm_cfg.get("base_url"))
     import threading
-    threading.Thread(target=generate_review_material, args=(mat.id, llm), daemon=True).start()
-    return {"id": mat.id, "status": "running"}
+    threading.Thread(target=generate_review_material, args=(mat.id, llm, detail), daemon=True).start()
+    return {"id": mat.id, "status": "running", "detail": detail}
 
 
 @router.get("/{mat_id}")
@@ -64,6 +69,7 @@ def get_review_material(mat_id: int, db: Session = Depends(get_db)):
         "title": mat.title,
         "subject": mat.subject,
         "status": mat.status,
+        "detail": getattr(mat, "detail", "") or "full",
         "progress": mat.progress,
         "error": mat.error,
         "created_at": mat.created_at.isoformat() if mat.created_at else "",

@@ -114,6 +114,18 @@
           <el-progress :percentage="learningStats.percent" :stroke-width="6" style="width:200px;display:inline-block;vertical-align:middle" />
           <span class="lp-text">已学完 {{ learningStats.completed }} / 学习中 {{ learningStats.learning }} / 未学 {{ learningStats.unlearned }}</span>
         </div>
+        <div class="review-mode" v-if="job.done_count > 0">
+          <span class="review-mode-label">复习资料详细程度：</span>
+          <el-radio-group v-model="reviewDetail" size="small">
+            <el-radio-button value="full">详版（推荐）</el-radio-button>
+            <el-radio-button value="brief">简版</el-radio-button>
+          </el-radio-group>
+          <span class="review-mode-tip">
+            {{ reviewDetail === 'full'
+              ? '先排大纲再逐章生成：每章内容更详细，但调用次数更多、耗时更长'
+              : '一次调用直接成型：快、便宜，长合集的每章会比较简略' }}
+          </span>
+        </div>
         <div class="map-actions" v-if="job.done_count > 0">
           <el-button type="primary" size="small" :loading="mapLoading" @click="generateMap">
             {{ job.mindmap ? '重新生成全课程知识图谱' : '生成全课程知识图谱与考点地图' }}
@@ -130,7 +142,9 @@
         </div>
         <div v-if="reviewMat && reviewMat.status === 'running'" class="review-progress">
           <el-progress :percentage="0" :status="'warning'" :show-text="false" :stroke-width="6" />
-          <span class="review-progress-text">{{ reviewMat.progress || '生成中…' }}</span>
+          <span class="review-progress-text">
+            {{ (reviewMat.detail === 'brief' ? '简版' : '详版') + ' · ' + (reviewMat.progress || '生成中…') }}
+          </span>
         </div>
         <el-alert v-if="reviewMat && reviewMat.status === 'failed'" :title="reviewMat.error || '生成失败'" type="error" :closable="false" show-icon style="margin-top:8px" />
       </el-card>
@@ -225,6 +239,8 @@ export default {
       mapLoading: false,
       timer: null,
       reviewMat: null,
+      // 复习资料详细程度：full=详版（逐章生成，内容更足）/ brief=简版（一次成型）
+      reviewDetail: localStorage.getItem('bililearn_review_detail') || 'full',
       reviewLoading: false,
       reviewTimer: null,
       graphDialogVisible: false,
@@ -498,7 +514,11 @@ export default {
     async startReviewMaterial() {
       this.reviewLoading = true
       try {
-        var res = await api.post('/review-material/start', { collection_job_id: this.jobId })
+        localStorage.setItem('bililearn_review_detail', this.reviewDetail)
+        var res = await api.post('/review-material/start', {
+          collection_job_id: this.jobId,
+          detail: this.reviewDetail
+        })
         if (res.id) {
           localStorage.setItem('review_mat_' + this.jobId, String(res.id))
           this.loadReviewMaterial(res.id)
@@ -544,6 +564,9 @@ export default {
 .detail-head { margin-bottom: 16px; }
 .detail-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .detail-title { margin: 0; font-size: 17px; }
+.review-mode { margin-top: 12px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; font-size: 12.5px; }
+.review-mode-label { color: var(--c-text-2); }
+.review-mode-tip { color: var(--c-text-3); }
 .map-actions { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .review-progress { margin-top: 10px; display: flex; align-items: center; gap: 10px; }
 .review-progress .el-progress { flex: 0 0 120px; }

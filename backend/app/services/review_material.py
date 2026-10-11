@@ -3,13 +3,16 @@ import html as html_lib
 import json
 import re
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional
 
 from ..database import SessionLocal
 from ..models import CollectionJob, Note, ReviewMaterial
 from ..services.llm.base import BaseLLM
 from ..services.note_generator import normalize_note
-from ..services.prompts import SUBJECTS, review_material_prompt
+from ..services.prompts import (SUBJECTS, review_chapter_prompt, review_material_prompt,
+                                review_outline_prompt, review_wrapup_prompt)
 from ..services.export_assets import html_to_pdf, katex_assets
 
 
@@ -59,7 +62,7 @@ def _set_progress(mat_id: int, progress: str):
         db.close()
 
 
-def generate_review_material(mat_id: int, llm: BaseLLM):
+def generate_review_material(mat_id: int, llm: BaseLLM, detail: str = "full"):
     subject = ""
     job_title = ""
     db = SessionLocal()
@@ -110,13 +113,11 @@ def generate_review_material(mat_id: int, llm: BaseLLM):
                 db.close()
             return
 
-        distilled_json = json.dumps(distilled, ensure_ascii=False)
-        _set_progress(mat_id, "正在 AI 重排知识体系（" + str(len(distilled)) + " 集）…")
-
-        # 输出上限按供应商来：写死 32000 在 DeepSeek 上会直接 400（其上限 8192），
-        # 被降级后反而只剩 4096，章节会更简略
-        cap = int(getattr(llm, "max_output_tokens", 0) or 0) or 32000
-        data = llm.chat_json(review_material_prompt(job_title, subject, distilled_json), max_tokens=cap)
+        if (detail or "full") == "brief":
+            _set_progress(mat_id, "正在 AI 重排知识体系（简版，一次成型）…")
+            data = _generate_brief(llm, subject, job_title, distilled)
+        else:
+            data = _generate_full(mat_id, llm, subject, job_title, distilled)
 
         db = SessionLocal()
         try:
@@ -139,6 +140,262 @@ def generate_review_material(mat_id: int, llm: BaseLLM):
                 db.commit()
         finally:
             db.close()
+
+
+# ===== 生成：简版（一次成型）/ 详版（三步：大纲 → 逐章 → 总览）=====
+#
+# 为什么会有"详版"：一次性把几十集笔记压成一份资料时，输入太大、输出又有上限，
+# 模型只能把每章写成概览（实测 86 集的合集只有 41 页、每章寥寥几行）。
+# 拆成三步后，每一步的输入输出都有界，每章才能写足细节。
+
+MAX_CHAPTERS = 24               # 章数上限：防止模型排出几十章导致调用次数与费用失控
+MAX_EPISODES_PER_CHAPTER = 8    # 单章最多处理几集，超了拆成"（续）"
+CHAPTER_WORKERS = 2             # 逐章并发生成数（保守，避免触发限流）
+
+
+def episode_digest(distilled: List[dict]) -> List[dict]:
+    """把蒸馏后的每集笔记压成"排大纲用"的极简摘要（只留标题与知识点名）。"""
+    out = []
+    for d in distilled or []:
+        topics: List[str] = []
+        for ch in d.get("chapters") or []:
+            t = str(ch.get("title") or "").strip()
+            if t:
+                topics.append(t)
+            for kp in (ch.get("key_points") or [])[:3]:
+                s = str(kp).strip()
+                if s:
+                    topics.append(s)
+        out.append({
+            "episode": d.get("page"),
+            "title": str(d.get("title") or "")[:120],
+            "topics": topics[:12],
+            "exam_points": [str(x)[:60] for x in (d.get("exam_points") or [])[:6]],
+        })
+    return out
+
+
+def plan_chapters(outline: Any, distilled: List[dict], max_chapters: int = MAX_CHAPTERS) -> List[dict]:
+    """把模型排的大纲与各集内容对应起来（纯函数，方便测试）。
+
+    - 大纲缺章节、集号对不上时退回"每集一章"；
+    - 模型漏掉的集补进最后一章（绝不丢集）；
+    - 章数超上限就把多出来的并成一个"综合专题"；
+    - 单章集数超上限就拆成"...（续）"。
+    """
+    by_page: Dict[int, dict] = {}
+    for d in distilled or []:
+        if d.get("page") is not None:
+            try:
+                by_page[int(d["page"])] = d
+            except Exception:  # noqa: BLE001
+                continue
+    plans: List[dict] = []
+    used = set()
+    chapters = (outline or {}).get("chapters") if isinstance(outline, dict) else None
+    for ch in chapters or []:
+        if not isinstance(ch, dict):
+            continue
+        pages: List[int] = []
+        for p in (ch.get("episodes") or []):
+            try:
+                pi = int(p)
+            except Exception:  # noqa: BLE001
+                continue
+            if pi in by_page and pi not in used:
+                pages.append(pi)
+                used.add(pi)
+        if not pages:
+            continue
+        plans.append({
+            "title": str(ch.get("title") or "").strip() or ("第 " + str(len(plans) + 1) + " 章"),
+            "intro": str(ch.get("intro") or "").strip(),
+            "pages": pages,
+        })
+
+    missing = sorted(p for p in by_page if p not in used)
+    if not plans:
+        plans = [{"title": str(by_page[p].get("title") or ("第 " + str(p) + " 集")), "intro": "", "pages": [p]}
+                 for p in sorted(by_page)]
+    elif missing:
+        plans[-1]["pages"].extend(missing)
+
+    if len(plans) > max_chapters:
+        keep = plans[:max_chapters - 1]
+        rest = plans[max_chapters - 1:]
+        pages = []
+        for p in rest:
+            pages.extend(p["pages"])
+        keep.append({"title": "综合专题（合并 " + str(len(rest)) + " 章）", "intro": "", "pages": pages})
+        plans = keep
+
+    expanded: List[dict] = []
+    for p in plans:
+        if len(p["pages"]) <= MAX_EPISODES_PER_CHAPTER:
+            expanded.append(p)
+            continue
+        for i in range(0, len(p["pages"]), MAX_EPISODES_PER_CHAPTER):
+            chunk = p["pages"][i:i + MAX_EPISODES_PER_CHAPTER]
+            expanded.append({
+                "title": p["title"] if i == 0 else (p["title"] + "（续）"),
+                "intro": p["intro"] if i == 0 else "",
+                "pages": chunk,
+            })
+    return expanded
+
+
+def assemble_material(wrapup: Any, chapters: List[dict], answers: List[dict],
+                      appendices: List[dict], source_map: List[dict],
+                      fallback_title: str = "") -> dict:
+    """把三步的产出拼成最终复习资料（纯函数）。附录按"公式/术语/卡片"去重并限量。"""
+    w = wrapup if isinstance(wrapup, dict) else {}
+    material = {
+        "title": str(w.get("title") or fallback_title or "").strip(),
+        "subject": str(w.get("subject") or "").strip(),
+        "overview": str(w.get("overview") or "").strip(),
+        "usage_guide": str(w.get("usage_guide") or "").strip(),
+        "chapters": [c for c in (chapters or []) if isinstance(c, dict)],
+        "answers": [a for a in (answers or []) if isinstance(a, dict)],
+        "appendix": {"formula_sheet": [], "glossary": [], "flash_cards": [], "source_map": source_map or []},
+    }
+    limits = {"formula_sheet": 300, "glossary": 400, "flash_cards": 400}
+    keyof = {"formula_sheet": "latex", "glossary": "term", "flash_cards": "front"}
+    for key, limit in limits.items():
+        seen = set()
+        merged: List[dict] = []
+        for ap in appendices or []:
+            for item in (ap or {}).get(key) or []:
+                if not isinstance(item, dict):
+                    continue
+                marker = str(item.get(keyof[key]) or "").strip()
+                if not marker or marker in seen:
+                    continue
+                seen.add(marker)
+                merged.append(item)
+                if len(merged) >= limit:
+                    break
+            if len(merged) >= limit:
+                break
+        material["appendix"][key] = merged
+    return material
+
+
+def _generate_brief(llm: BaseLLM, subject: str, job_title: str, distilled: List[dict]) -> dict:
+    """简版：一次调用直接成型（快、便宜，但长合集的每章会比较简略）。"""
+    cap = int(getattr(llm, "max_output_tokens", 0) or 0) or 32000
+    return llm.chat_json(
+        review_material_prompt(job_title, subject, json.dumps(distilled, ensure_ascii=False)),
+        max_tokens=cap,
+    )
+
+
+def _generate_full(mat_id: int, llm: BaseLLM, subject: str, job_title: str, distilled: List[dict]) -> dict:
+    """详版：① 排大纲 → ② 逐章生成 → ③ 补全局信息。"""
+    _set_progress(mat_id, "① 正在规划章节目录（" + str(len(distilled)) + " 集）…")
+    digest = json.dumps(episode_digest(distilled), ensure_ascii=False)
+    outline = llm.chat_json(review_outline_prompt(job_title, subject, digest))
+    plans = plan_chapters(outline, distilled)
+    if not plans:
+        raise RuntimeError("章节规划失败：没有把任何一集分配进章节")
+    total = len(plans)
+    _set_progress(mat_id, "② 开始逐章生成（共 " + str(total) + " 章）…")
+
+    by_page: Dict[int, dict] = {}
+    for d in distilled:
+        if d.get("page") is not None:
+            try:
+                by_page[int(d["page"])] = d
+            except Exception:  # noqa: BLE001
+                continue
+
+    results: List[Optional[dict]] = [None] * total
+    counter = {"done": 0}
+    lock = threading.Lock()
+
+    def _one(i_plan):
+        i, plan = i_plan
+        eps = json.dumps([by_page[p] for p in plan["pages"] if p in by_page], ensure_ascii=False)
+        msgs = review_chapter_prompt(job_title, subject, plan, eps, i + 1, total)
+        last_err = "返回结构不符合要求"
+        for attempt in range(2):
+            try:
+                data = llm.chat_json(msgs)
+            except Exception as exc:  # noqa: BLE001
+                last_err = str(exc)[:160]
+                if attempt == 0:
+                    time.sleep(2)
+                    continue
+                break
+            chapter = None
+            if isinstance(data, dict):
+                if isinstance(data.get("chapter"), dict):
+                    chapter = data["chapter"]
+                elif data.get("sections"):
+                    chapter = data            # 兼容：模型直接把章节对象吐出来
+            if chapter:
+                return i, {
+                    "chapter": chapter,
+                    "answers": data.get("answers") if isinstance(data, dict) else [],
+                    "appendix": data.get("appendix") if isinstance(data, dict) else {},
+                }
+            last_err = "返回结构不符合要求"
+        # 单章失败不毁掉整份资料：留一个占位章节，把原因记进 warnings
+        return i, {
+            "chapter": {"title": plan["title"], "intro": plan["intro"], "sections": [], "quiz": []},
+            "answers": [], "appendix": {}, "error": last_err,
+        }
+
+    with ThreadPoolExecutor(max_workers=max(1, min(CHAPTER_WORKERS, total))) as pool:
+        futures = [pool.submit(_one, x) for x in enumerate(plans)]
+        for fut in as_completed(futures):
+            try:
+                idx, item = fut.result()
+            except Exception as exc:  # noqa: BLE001  兜底，单章异常不影响整体
+                idx, item = 0, {"chapter": {}, "answers": [], "appendix": {}, "error": str(exc)[:120]}
+            results[idx] = item
+            with lock:
+                counter["done"] += 1
+                _set_progress(mat_id, "② 逐章生成 " + str(counter["done"]) + "/" + str(total) + " …")
+
+    chapters: List[dict] = []
+    answers: List[dict] = []
+    appendices: List[dict] = []
+    warnings: List[str] = []
+    for i in range(total):
+        item = results[i] or {}
+        ch = item.get("chapter") or {}
+        if not ch.get("title"):
+            ch["title"] = plans[i]["title"]
+        chapters.append(ch)
+        for a in item.get("answers") or []:
+            if isinstance(a, dict):
+                a = dict(a)
+                a["chapter_index"] = i + 1
+                answers.append(a)
+        appendices.append(item.get("appendix") or {})
+        if item.get("error"):
+            warnings.append("第 " + str(i + 1) + " 章：" + str(item["error"]))
+
+    source_map = []
+    for p in sorted(by_page):
+        source_map.append({
+            "episode": p,
+            "title": str(by_page[p].get("title") or "")[:80],
+            "covered_in": [plans[i]["title"] for i in range(total) if p in plans[i]["pages"]],
+        })
+
+    _set_progress(mat_id, "③ 正在补封面信息与复习指南…")
+    try:
+        wrapup = llm.chat_json(review_wrapup_prompt(job_title, subject, "、".join(p["title"] for p in plans)))
+    except Exception as exc:  # noqa: BLE001  这一步失败不影响正文
+        warnings.append("封面信息生成失败：" + str(exc)[:120])
+        wrapup = {}
+
+    data = assemble_material(wrapup, chapters, answers, appendices, source_map,
+                             fallback_title=job_title + " 复习资料")
+    if warnings:
+        data["_warnings"] = warnings
+    return data
 
 
 # ===== HTML 渲染 =====
