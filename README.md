@@ -72,7 +72,7 @@
 
 ### 方式一：便携版（Windows，推荐）
 
-从 [Release 页面](https://github.com/yxyusage/BiliLearn-AI/releases/latest) 下载 `BiliLearn-AI-v1.8.7-portable.zip`，解压后双击根目录的 `BiliLearn-AI-Launcher.exe`，点击「启动服务」。
+从 [Release 页面](https://github.com/yxyusage/BiliLearn-AI/releases/latest) 下载 `BiliLearn-AI-v1.8.8-portable.zip`，解压后双击根目录的 `BiliLearn-AI-Launcher.exe`，点击「启动服务」。
 
 启动器会自动完成虚拟环境创建、依赖安装和前端检查，之后启动只需数秒。完成后浏览器自动打开。
 
@@ -335,6 +335,12 @@ BiliLearn-AI/
 - 「已找到视频页，但读不到视频信息」→ 内容脚本没就绪（扩展刚更新、或从合集页 SPA 跳转过来）。v2.3.0 起会自动补注入并重试，兜底方案是刷新 B 站页面。
 
 > **为什么会「从合集点进视频就读不到」**：B 站合集/播放列表点进视频是**站内 SPA 跳转**（不重新加载页面）。插件原先只在 `/video/` 页面注入内容脚本，从合集页跳过来的页面从未在 `/video/` 上加载过，脚本就不存在，侧边栏发消息自然没人应答（`Receiving end does not exist`）。v2.3.0 已把注入范围扩大到整个 `*.bilibili.com`。
+
+**生成总是失败，不知道卡在哪一步？**
+打开「设置 → **环境自检**」，点「开始自检」（填上视频的 BV 号更准；想验证音频下载就勾上「深度检测」）。
+它会把后端、依赖版本、B站连通性、登录态、大模型 Key、语音模型缓存、模型下载环境（含 Xet）、
+视频有没有官方字幕、音频能否真的拉下来——逐项给出结论和处理建议。
+结果可以「复制结果」或「下载 txt」直接发给开发者，里面**不含任何 API Key / Cookie**。
 
 **数据保存在哪里？**
 默认在用户主目录下的 `BiliLearn-AI` 文件夹（Windows 即 `C:\Users\你的用户名\BiliLearn-AI`），与程序目录分离——**升级或重新下载新版本都不会丢笔记**。里面包含：

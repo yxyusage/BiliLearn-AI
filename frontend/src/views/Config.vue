@@ -283,6 +283,56 @@
       </div>
     </section>
 
+    <!-- 环境自检：生成失败时先跑一次，把结果发给开发者最快 -->
+    <section class="cfg-card">
+      <div class="cfg-title">
+        <h3>环境自检</h3>
+        <span class="cfg-sub">生成失败时先跑一次，结果可以直接发给开发者</span>
+      </div>
+
+      <div class="diag-bar">
+        <el-input
+          v-model="diagBvid"
+          placeholder="可选：填 BV 号检测某个视频（如 BV1YE411D7nH）"
+          clearable
+        />
+        <el-checkbox v-model="diagDeep" class="diag-deep">深度检测</el-checkbox>
+        <el-button type="primary" :loading="diagRunning" @click="runDiagnose">开始自检</el-button>
+      </div>
+      <p class="hint">
+        深度检测会真实调用一次大模型、并试拉 1MB 音频，用来验证「音频下载」这一环；平时排查不勾也行。
+      </p>
+
+      <template v-if="diagItems.length">
+        <div class="diag-summary">
+          <span v-if="diagSummary.ok" class="diag-chip ok">✓ {{ diagSummary.ok }} 项正常</span>
+          <span v-if="diagSummary.warn" class="diag-chip warn">! {{ diagSummary.warn }} 项警告</span>
+          <span v-if="diagSummary.fail" class="diag-chip fail">✕ {{ diagSummary.fail }} 项失败</span>
+          <span v-if="diagSummary.skip" class="diag-chip skip">— {{ diagSummary.skip }} 项跳过</span>
+          <span class="diag-time">{{ diagAt }}</span>
+        </div>
+
+        <ul class="diag-list">
+          <li v-for="it in diagItems" :key="it.id" class="diag-item" :class="it.status">
+            <span class="diag-icon">{{ diagIcon(it.status) }}</span>
+            <div class="diag-body">
+              <div class="diag-line">
+                <span class="diag-name">{{ it.name }}</span>
+                <span class="diag-detail">{{ it.detail }}</span>
+              </div>
+              <p v-if="it.hint" class="diag-hint">{{ it.hint }}</p>
+            </div>
+          </li>
+        </ul>
+
+        <div class="diag-actions">
+          <el-button size="small" @click="copyDiagnose">复制结果</el-button>
+          <el-button size="small" @click="downloadDiagnose">下载 txt</el-button>
+        </div>
+      </template>
+      <p v-else class="hint">还没有跑过自检。点上面的「开始自检」即可（不勾深度检测时只做只读检查，几秒出结果）。</p>
+    </section>
+
     <!-- 底部保存条：原来这个"保存配置"按钮被误删，导致 API Key / Cookie / 模型 / 并发数都存不下来 -->
     <div class="cfg-actions">
       <span class="cfg-actions-hint" :class="{ warn: dirty }">
@@ -335,6 +385,13 @@ export default {
       importing: false,
       archiveDragOver: false,
       lastImport: null,
+      // 环境自检
+      diagRunning: false,
+      diagDeep: false,
+      diagBvid: '',
+      diagItems: [],
+      diagSummary: {},
+      diagAt: '',
       palette: theme.palette,
       palettes: [
         { id: 'paper', name: '纸墨青', desc: '墨青 + 暖纸，学术书卷气', swatch: { main: '#0d7e70', soft: '#e6f4f1', bg: '#f6f5f1' } },
@@ -578,6 +635,71 @@ export default {
         this.importing = false
       }
     },
+    diagIcon(status) {
+      var map = { ok: '✓', warn: '!', fail: '✕', skip: '—' }
+      return map[status] || '·'
+    },
+    // 自检结果拼成纯文本：方便用户直接贴到 issue / 聊天里
+    diagText() {
+      var self = this
+      var lines = []
+      lines.push('BiliLearn-AI 环境自检')
+      lines.push('时间：' + (this.diagAt || new Date().toLocaleString()))
+      lines.push('后端版本：v' + this.appVersion)
+      if (this.diagBvid) lines.push('检测视频：' + this.diagBvid)
+      lines.push('深度检测：' + (this.diagDeep ? '是' : '否'))
+      lines.push('汇总：' + JSON.stringify(this.diagSummary))
+      lines.push('----------------------------------------')
+      this.diagItems.forEach(function (it) {
+        lines.push('[' + String(it.status || '').toUpperCase() + '] ' + it.name + '：' + (it.detail || ''))
+        if (it.hint) lines.push('        提示：' + it.hint)
+      })
+      lines.push('----------------------------------------')
+      lines.push('（以上为本地自检结果，不含任何 API Key / Cookie 内容）')
+      return lines.join('\n')
+    },
+    async runDiagnose() {
+      this.diagRunning = true
+      try {
+        var q = []
+        if (this.diagBvid && this.diagBvid.trim()) q.push('bvid=' + encodeURIComponent(this.diagBvid.trim()))
+        if (this.diagDeep) q.push('deep=1')
+        var res = await api.get('/diagnose' + (q.length ? '?' + q.join('&') : ''))
+        this.diagItems = res.items || []
+        this.diagSummary = res.summary || {}
+        this.diagAt = new Date().toLocaleString()
+        var s = this.diagSummary
+        if (s.fail) ElMessage.warning('自检完成：' + s.fail + ' 项失败，' + (s.warn || 0) + ' 项警告')
+        else if (s.warn) ElMessage.success('自检完成：' + s.warn + ' 项警告，没有失败项')
+        else ElMessage.success('自检完成：全部正常')
+      } catch (e) {
+        ElMessage.error('自检失败：' + e.message)
+      } finally {
+        this.diagRunning = false
+      }
+    },
+    copyDiagnose() {
+      var text = this.diagText()
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () {
+          ElMessage.success('自检结果已复制，可直接粘贴')
+        }).catch(function () {
+          ElMessage.warning('复制失败，请用「下载 txt」')
+        })
+      } else {
+        ElMessage.warning('当前浏览器不支持自动复制，请用「下载 txt」')
+      }
+    },
+    downloadDiagnose() {
+      var blob = new Blob([this.diagText()], { type: 'text/plain;charset=utf-8' })
+      var link = document.createElement('a')
+      link.href = URL.createObjectURL(blob)
+      link.download = 'BiliLearn-AI-自检-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '') + '.txt'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      setTimeout(function () { URL.revokeObjectURL(link.href) }, 1000)
+    },
     async test() {
       this.testing = true
       try {
@@ -709,6 +831,41 @@ export default {
   background: var(--c-success-soft); color: var(--c-text-2); font-size: 12px; line-height: 1.7;
 }
 .archive-warn { color: var(--c-danger); margin-top: 4px; }
+
+/* ---------- 环境自检 ---------- */
+.diag-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.diag-bar .el-input { flex: 1 1 320px; min-width: 0; }
+.diag-deep { flex-shrink: 0; }
+.diag-summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 14px 0 8px; }
+.diag-chip { font-size: 12px; padding: 2px 10px; border-radius: 999px; white-space: nowrap; }
+.diag-chip.ok { background: var(--c-success-soft); color: var(--c-success); }
+.diag-chip.warn { background: var(--c-accent-soft); color: var(--c-accent); }
+.diag-chip.fail { background: var(--c-danger-soft); color: var(--c-danger); }
+.diag-chip.skip { background: var(--c-bg-soft); color: var(--c-text-3); }
+.diag-time { margin-left: auto; font-size: 12px; color: var(--c-text-3); }
+.diag-list { list-style: none; margin: 0; padding: 0; }
+.diag-item {
+  display: flex; gap: 10px;
+  padding: 9px 12px; margin-bottom: 6px;
+  border: 1px solid var(--c-border-light); border-radius: 10px;
+  background: var(--c-bg-elev);
+}
+.diag-item:last-child { margin-bottom: 0; }
+.diag-item.warn { border-color: var(--c-accent-border); background: var(--c-accent-soft); }
+.diag-item.fail { border-color: color-mix(in srgb, var(--c-danger) 30%, var(--c-border)); background: var(--c-danger-soft); }
+.diag-item.skip { background: var(--c-bg-soft); }
+.diag-icon { width: 16px; flex-shrink: 0; text-align: center; font-weight: 700; font-size: 13px; line-height: 1.6; }
+.diag-item.ok .diag-icon { color: var(--c-success); }
+.diag-item.warn .diag-icon { color: var(--c-accent); }
+.diag-item.fail .diag-icon { color: var(--c-danger); }
+.diag-item.skip .diag-icon { color: var(--c-text-3); }
+.diag-body { flex: 1; min-width: 0; }
+.diag-line { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+.diag-name { font-size: 13px; font-weight: 600; color: var(--c-text); flex-shrink: 0; }
+.diag-detail { font-size: 12.5px; color: var(--c-text-2); word-break: break-word; }
+.diag-item.warn .diag-detail, .diag-item.fail .diag-detail { color: var(--c-text); }
+.diag-hint { margin: 4px 0 0; font-size: 12px; color: var(--c-text-3); line-height: 1.6; }
+.diag-actions { display: flex; gap: 8px; margin-top: 12px; }
 
 /* ---------- 底部保存条（吸底，随时可点） ---------- */
 .cfg-actions {

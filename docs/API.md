@@ -178,6 +178,26 @@ Base URL：`http://localhost:8000/api`
 ### POST /config/test
 测试模型连接，返回模型回复前 50 字。
 
+### GET /diagnose
+环境自检：把「生成笔记」链路上容易出问题的环节逐项过一遍，返回 `{summary, items}`。
+`items[].status` 为 `ok / warn / fail / skip`；`hint` 是给用户看的处理建议。
+
+查询参数：
+- `bvid`（可选）：填了就额外检测该视频能否解析、**有没有官方字幕**（决定走「抓字幕」还是「本地转写」）
+- `page`（默认 1）
+- `deep=true`（可选）：额外**真实调用一次大模型**，并**试拉 1MB 音频**验证下载链路
+
+```json
+{
+  "summary": { "ok": 8, "warn": 1, "fail": 0, "skip": 2 },
+  "items": [
+    { "id": "model_cache", "name": "语音模型缓存", "status": "warn",
+      "detail": "base 未缓存，首次转写需下载（约 150MB）",
+      "hint": "首次转写会先下模型：失败时把「模型下载源」设为国内镜像…" }
+  ]
+}
+```
+
 ### POST /config/verify-cookie
 校验 B站 Cookie 的登录状态。可传 `{"cookie": "..."}` 先测未保存的 Cookie；不传 body 则用已保存的那份。
 

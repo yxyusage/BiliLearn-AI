@@ -9,12 +9,13 @@ from sqlalchemy import text
 
 from .database import Base, SessionLocal, engine, run_migrations
 from .models import CollectionJob, Note, ReviewMaterial
-from .routers import collections, config, data, export, favorites, local, notes, quiz, review, review_material, roadmap, stats, video
+from .routers import (collections, config, data, diagnose, export, favorites, local, notes,
+                      quiz, review, review_material, roadmap, stats, video)
 
 Base.metadata.create_all(bind=engine)
 run_migrations()
 
-APP_VERSION = "1.8.7"
+APP_VERSION = "1.8.8"
 
 app = FastAPI(title="BiliLearn-AI", description="B站全学科AI学习助手", version=APP_VERSION)
 
@@ -38,6 +39,7 @@ app.include_router(stats.router, prefix="/api/stats", tags=["统计"])
 app.include_router(roadmap.router, prefix="/api/roadmap", tags=["合集线路图"])
 app.include_router(favorites.router, prefix="/api/favorites", tags=["收藏夹导入"])
 app.include_router(review_material.router, prefix="/api/review-material", tags=["复习资料"])
+app.include_router(diagnose.router, prefix="/api/diagnose", tags=["环境自检"])
 
 
 @app.on_event("startup")

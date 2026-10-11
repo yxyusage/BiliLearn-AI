@@ -26,6 +26,7 @@ jobs:
           python backend/tests/test_whisper_hf.py
           python backend/tests/test_fastdeps.py
           python backend/tests/test_providers.py
+          python backend/tests/test_diagnose.py
 
   frontend:
     runs-on: ubuntu-latest
