@@ -102,7 +102,13 @@ class OpenAICompatLLM(BaseLLM):
             # 有的供应商 max_tokens 上限更低：这类 400 去掉该参数再试一次，
             # 免得因为一个可选参数把整篇笔记卡死
             if status == 400 and "max_tokens" in body and payload.get("max_tokens"):
-                payload.pop("max_tokens", None)
+                # 优先降到该供应商已知的上限；实在没有才去掉参数。
+                # （直接去掉会退回供应商默认值，对 DeepSeek 来说就是 4096，反而更容易被截断）
+                cap = int(getattr(self, "max_output_tokens", 0) or 0)
+                if cap and cap < int(payload.get("max_tokens") or 0):
+                    payload["max_tokens"] = cap
+                else:
+                    payload.pop("max_tokens", None)
                 try:
                     retry = self._post(url, payload, headers)
                     retry.raise_for_status()

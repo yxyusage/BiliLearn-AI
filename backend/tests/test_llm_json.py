@@ -125,6 +125,67 @@ def test_two_level_reduce():
     print("two-level-reduce OK")
 
 
+def test_400_max_tokens_clamps_to_provider_cap():
+    """写死过大的 max_tokens（如复习资料的 32000）在 DeepSeek 上会 400：
+    必须降到供应商上限重试，而不是直接去掉参数（去掉会退回 4096，更容易被截断）。"""
+    import httpx
+
+    from backend.app.services.llm.openai_compat import OpenAICompatLLM
+
+    llm = OpenAICompatLLM(base_url="http://x/v1", api_key="k", model="m")
+    llm.max_output_tokens = 8192
+    sent = []
+
+    class FakeResp:
+        def __init__(self, status, text):
+            self.status_code = status
+            self.text = text
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise httpx.HTTPStatusError("err", request=httpx.Request("POST", "http://x"), response=self)
+
+        def json(self):
+            return {"choices": [{"message": {"content": '{"ok": 1}'}, "finish_reason": "stop"}]}
+
+    def fake_post(url, payload, headers):
+        sent.append(dict(payload))
+        if int(payload.get("max_tokens") or 0) > 8192:
+            return FakeResp(400, '{"error":"max_tokens must be <= 8192"}')
+        return FakeResp(200, "")
+
+    llm._post = fake_post
+    assert llm.chat([{"role": "user", "content": "x"}], temperature=0, max_tokens=32000) == '{"ok": 1}'
+    assert sent[0]["max_tokens"] == 32000
+    assert sent[1]["max_tokens"] == 8192, sent[1]
+    print("400-clamp OK")
+
+
+def test_truncation_detected_by_finish_reason():
+    """finish_reason=length 必须直接报「输出被截断」，而不是让上层报 JSON 解析失败。"""
+    from backend.app.services.llm.openai_compat import OpenAICompatLLM
+
+    llm = OpenAICompatLLM(base_url="http://x/v1", api_key="k", model="m")
+
+    class FakeResp:
+        status_code = 200
+        text = ""
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": '{"a": 1'}, "finish_reason": "length"}]}
+
+    llm._post = lambda url, payload, headers: FakeResp()
+    try:
+        llm.chat([{"role": "user", "content": "x"}], temperature=0)
+        raise AssertionError("应当抛出 LLMTruncatedError")
+    except LLMTruncatedError as exc:
+        assert "截断" in str(exc), str(exc)
+    print("truncation-detected OK")
+
+
 if __name__ == "__main__":
     test_extract_plain_and_fenced()
     test_extract_json_after_latex_braces()
@@ -133,4 +194,6 @@ if __name__ == "__main__":
     test_http_and_truncation_are_not_wrapped()
     test_retry_on_bad_json()
     test_two_level_reduce()
+    test_400_max_tokens_clamps_to_provider_cap()
+    test_truncation_detected_by_finish_reason()
     print("ALL_LLM_JSON_TESTS_PASSED")

@@ -113,7 +113,10 @@ def generate_review_material(mat_id: int, llm: BaseLLM):
         distilled_json = json.dumps(distilled, ensure_ascii=False)
         _set_progress(mat_id, "正在 AI 重排知识体系（" + str(len(distilled)) + " 集）…")
 
-        data = llm.chat_json(review_material_prompt(job_title, subject, distilled_json), max_tokens=32000)
+        # 输出上限按供应商来：写死 32000 在 DeepSeek 上会直接 400（其上限 8192），
+        # 被降级后反而只剩 4096，章节会更简略
+        cap = int(getattr(llm, "max_output_tokens", 0) or 0) or 32000
+        data = llm.chat_json(review_material_prompt(job_title, subject, distilled_json), max_tokens=cap)
 
         db = SessionLocal()
         try:
