@@ -221,7 +221,7 @@ def check_cookie(db: Session) -> Dict[str, str]:
 
 
 def _extract(bvid: str, page: int, cookie: str) -> dict:
-    url = "https://www.bilibili.com/video/%s?p=%d" % (bvid, page or 1)
+    url = bilibili.video_url(bvid, page)
     opts = {
         "quiet": True,
         "no_warnings": True,

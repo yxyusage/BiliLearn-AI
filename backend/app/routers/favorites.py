@@ -122,7 +122,7 @@ def start_favorites(req: FavStartRequest, db: Session = Depends(get_db)):
         title = item.get("title") or ""
         if item.get("is_collection"):
             try:
-                info = bilibili.parse_video("https://www.bilibili.com/video/" + bvid, cookie)
+                info = bilibili.parse_video(bilibili.video_url(bvid), cookie)
                 pages = info.get("pages") or [{"page": 1, "title": title}]
                 s = max(1, int(item.get("start_page") or 1))
                 e = int(item.get("end_page") or 0)

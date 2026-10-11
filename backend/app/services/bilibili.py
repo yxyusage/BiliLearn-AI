@@ -132,17 +132,92 @@ class VideoError(Exception):
     """视频解析/字幕提取失败。"""
 
 
-def extract_bvid(url: str) -> str:
-    """从链接/文本中识别 BV 号或 av 号。"""
-    if not url:
+_SHORT_LINK_HOSTS = ("b23.tv", "bili2233.cn", "bili22.cn", "bili33.cn")
+
+
+def _looks_like_url(text: str) -> bool:
+    t = (text or "").strip().lower()
+    return t.startswith("http://") or t.startswith("https://") or t.startswith("www.")
+
+
+def expand_short_link(url: str, timeout: float = 10.0) -> str:
+    """把 b23.tv 这类短链展开成完整地址；非短链域名原样返回。
+
+    用户经常直接粘贴 B站「分享」出来的短链（https://b23.tv/xxxx），它本身不含 BV 号。
+    只对短链域名发一次请求（不读响应体，只取最终地址），其它输入不会产生网络请求。
+    """
+    text = (url or "").strip()
+    if not text:
+        return text
+    try:
+        from urllib.parse import urlparse
+
+        host = (urlparse(text if _looks_like_url(text) else "https://" + text).hostname or "").lower()
+    except Exception:  # noqa: BLE001
+        host = ""
+    if not host or not any(h in host for h in _SHORT_LINK_HOSTS):
+        return text
+    target = text if _looks_like_url(text) else "https://" + text
+    try:
+        with httpx.Client(timeout=timeout, follow_redirects=True, headers=_make_headers()) as client:
+            with client.stream("GET", target) as resp:
+                final = str(resp.url)
+        return final or text
+    except Exception:  # noqa: BLE001  展开失败就交给后面的逻辑报错
+        return text
+
+
+def normalize_video_input(text: str) -> str:
+    """把用户粘贴的内容整理成能直接交给 yt-dlp 的链接（短链展开、去首尾空白）。"""
+    t = (text or "").strip()
+    if not t:
+        return t
+    if _looks_like_url(t) and not re.search(r"(BV[0-9A-Za-z]{10}|av[0-9]+)", t, re.I):
+        expanded = expand_short_link(t)
+        if expanded != t:
+            return expanded
+    return t
+
+
+def extract_bvid(text: str) -> str:
+    """从链接或裸编号里取出 BV 号（短链会先展开）；取不到返回空串。
+
+    注意：这里**绝不能兜底返回原始输入**。历史上正是因为它最后 return url，
+    短链被当成 BV 号一路带下去，最终拼出
+    https://www.bilibili.com/video/https://b23.tv/xxxx 这种畸形地址。
+    """
+    raw = (text or "").strip()
+    if not raw:
         return ""
-    url = url.strip()
-    m = re.search(r"(BV[0-9A-Za-z]{10})", url)
+    m = re.search(r"(BV[0-9A-Za-z]{10})", raw)
     if m:
         return m.group(1)
-    m = re.search(r"av(\d+)", url, re.I)
+    m = re.search(r"av([0-9]+)", raw, re.I)
     if m:
         return "av" + m.group(1)
+    expanded = expand_short_link(raw)
+    if expanded and expanded != raw:
+        m = re.search(r"(BV[0-9A-Za-z]{10})", expanded)
+        if m:
+            return m.group(1)
+        m = re.search(r"av([0-9]+)", expanded, re.I)
+        if m:
+            return "av" + m.group(1)
+    return ""
+
+
+def video_url(bvid: str, page: int = 1) -> str:
+    """拼 B站视频地址；编号不合法时抛可读错误，避免拼出畸形 URL 让 yt-dlp 报 Unsupported URL。"""
+    bv = (bvid or "").strip()
+    if not re.fullmatch(r"(BV[0-9A-Za-z]{10}|av[0-9]+)", bv, re.I):
+        raise VideoError("视频编号无效：" + (bv[:80] or "(空)") + "，请用完整链接重新解析该视频")
+    url = "https://www.bilibili.com/video/" + bv
+    try:
+        p = int(page or 1)
+    except Exception:  # noqa: BLE001
+        p = 1
+    if p > 1:
+        url += "?p=" + str(p)
     return url
 
 
@@ -168,8 +243,13 @@ def _fetch_pagetitles(bvid: str, cookie: str = "") -> list:
 
 def parse_video(url: str, cookie: str = "") -> dict:
     """解析单视频或合集链接，返回 bvid、标题、分P列表。"""
+    # 先把短链（b23.tv 等）展开：这样后面的 BV 号、分P参数都能正确取到
+    url = normalize_video_input(url)
     bvid = extract_bvid(url)
-    if not bvid:
+    if not bvid and _looks_like_url(url):
+        # 合集/播放列表链接本身没有 BV 号，交给 yt-dlp 解析后再取（见下方 info["id"]）
+        bvid = ""
+    if not bvid and not _looks_like_url(url):
         raise VideoError("无法从链接中识别 BV 号，请粘贴完整的 B站视频/合集链接")
     ydl_opts = {
         "quiet": True,
@@ -197,6 +277,10 @@ def parse_video(url: str, cookie: str = "") -> dict:
                 restore_proxy_env(saved_proxy)
         else:
             raise VideoError("视频解析失败：" + str(exc)) from exc
+    # yt-dlp 已经把短链/合集链接解析过了，它给出的 id 是权威 BV 号，优先级最高
+    resolved = str(info.get("id") or "")
+    if re.fullmatch(r"BV[0-9A-Za-z]{10}", resolved):
+        bvid = resolved
     entries = info.get("entries") or []
     if info.get("_type") == "playlist" and entries:
         pages = [
@@ -225,9 +309,7 @@ def parse_video(url: str, cookie: str = "") -> dict:
 
 def get_subtitles(bvid: str, page: int = 1, cookie: str = "") -> Tuple[List[dict], str]:
     """优先抓取 B站官方 CC 字幕（UP 主上传/AI 字幕），返回 (字幕列表, 来源说明)。"""
-    url = "https://www.bilibili.com/video/" + bvid
-    if page and page > 1:
-        url += "?p=" + str(page)
+    url = video_url(bvid, page)
     base_opts = {
         "quiet": True,
         "no_warnings": True,

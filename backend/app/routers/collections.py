@@ -161,7 +161,7 @@ def start_job(req: CollectionStartRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="尚未配置 API Key，请先到「配置」页填写")
     cookie = get_setting(db, "bili_cookie", "")
     try:
-        info = bilibili.parse_video("https://www.bilibili.com/video/" + req.bvid, cookie)
+        info = bilibili.parse_video(bilibili.video_url(req.bvid), cookie)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail="视频解析失败：" + str(exc)) from exc
     pages = info.get("pages") or [{"page": 1, "title": info.get("title") or ""}]
@@ -229,7 +229,7 @@ def resume_job(job_id: int, db: Session = Depends(get_db)):
     # 重新获取合集信息
     cookie = get_setting(db, "bili_cookie", "")
     try:
-        info = bilibili.parse_video("https://www.bilibili.com/video/" + job.bvid, cookie)
+        info = bilibili.parse_video(bilibili.video_url(job.bvid), cookie)
     except Exception as exc:
         raise HTTPException(status_code=400, detail="视频解析失败：" + str(exc)) from exc
     pages = info.get("pages") or [{"page": 1, "title": info.get("title") or ""}]

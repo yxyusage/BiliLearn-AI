@@ -18,7 +18,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 import yt_dlp
 
-from .bilibili import cookie_file
+from .bilibili import cookie_file, video_url
 from .netutil import clear_proxy_env, has_proxy_env, restore_proxy_env
 
 HF_MIRROR = "https://hf-mirror.com"
@@ -244,7 +244,7 @@ def _download_audio_with_retry(url: str, ydl_opts: dict, attempts: int = 3) -> N
 
 def transcribe(bvid: str, page: int = 1, model_name: Optional[str] = None, language: Optional[str] = None,
                cookie: str = "", endpoint_mode: str = "") -> List[dict]:
-    url = "https://www.bilibili.com/video/" + bvid + "?p=" + str(page or 1)
+    url = video_url(bvid, page)
 
     with tempfile.TemporaryDirectory() as tmp:
         ydl_opts = {

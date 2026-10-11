@@ -10,7 +10,7 @@ from typing import List
 import yt_dlp
 
 from ..config import DATA_DIR
-from .bilibili import cookie_file
+from .bilibili import cookie_file, video_url
 from .llm import BaseLLM
 from .netutil import clear_proxy_env, has_proxy_env, restore_proxy_env
 from .note_generator import all_timestamps
@@ -105,7 +105,7 @@ def extract_frames(bvid: str, page: int, timestamps: List[int], out_dir: Path, c
             raise RuntimeError("本地视频文件不存在或已被移动：" + local_path)
         video_path = local_path
     else:
-        url = "https://www.bilibili.com/video/" + bvid + "?p=" + str(page or 1)
+        url = video_url(bvid, page)
         video_path = _download_video(url, cookie)
     paths = []
     container = av.open(video_path)

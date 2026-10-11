@@ -260,6 +260,16 @@ def _run_generation(note_id: int, llm_cfg: dict):
 def generate_note(req: GenerateRequest, db: Session = Depends(get_db)):
     if not req.bvid:
         raise HTTPException(status_code=400, detail="缺少 BV 号")
+    # 容错：短链 / 完整链接被直接当成 bvid 传进来时先归一化。
+    # 历史上这里不校验，短链会被原样存成 bvid，最后拼出
+    # https://www.bilibili.com/video/https://b23.tv/xxx 这种畸形地址。
+    resolved_bvid = bilibili.extract_bvid(req.bvid)
+    if not resolved_bvid:
+        raise HTTPException(
+            status_code=400,
+            detail="无法识别视频编号：请粘贴完整的 B站视频链接（支持 b23.tv 短链）",
+        )
+    req.bvid = resolved_bvid
     if req.subject not in SUBJECTS:
         raise HTTPException(status_code=400, detail="不支持的学科类型")
     # 同一视频已有完成/进行中的笔记时直接复用，避免重复扣费
