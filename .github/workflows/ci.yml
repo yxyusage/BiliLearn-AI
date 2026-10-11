@@ -28,6 +28,7 @@ jobs:
           python backend/tests/test_providers.py
           python backend/tests/test_diagnose.py
           python backend/tests/test_bili_links.py
+          python backend/tests/test_llm_json.py
 
   frontend:
     runs-on: ubuntu-latest

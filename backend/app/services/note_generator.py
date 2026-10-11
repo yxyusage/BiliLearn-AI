@@ -336,7 +336,20 @@ def generate_note(subtitles: List[dict], subject: str, llm: BaseLLM, video_title
             section_jsons = list(pool.map(_map, enumerate(chunks, start=1)))
     else:
         section_jsons = [_map(x) for x in enumerate(chunks, start=1)]
-    note = llm.chat_json(reduce_prompt(subject, json.dumps(section_jsons, ensure_ascii=False), video_title))
+    # 汇总：段数多时先分批汇总、再总汇总。
+    # 直接一次性把十几段小节汇总成整篇笔记，输出很容易超过模型上限被截断
+    # （表现就是"JSON 解析失败：未找到合法 JSON"）。
+    MERGE_GROUP = 4
+    if len(section_jsons) > MERGE_GROUP:
+        merged = []
+        for i in range(0, len(section_jsons), MERGE_GROUP):
+            part = section_jsons[i:i + MERGE_GROUP]
+            merged.append(llm.chat_json(reduce_prompt(
+                subject, json.dumps(part, ensure_ascii=False), video_title)))
+        note = llm.chat_json(reduce_prompt(
+            subject, json.dumps(merged, ensure_ascii=False), video_title))
+    else:
+        note = llm.chat_json(reduce_prompt(subject, json.dumps(section_jsons, ensure_ascii=False), video_title))
     return normalize_note(note)
 
 

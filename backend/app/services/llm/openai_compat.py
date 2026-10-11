@@ -4,7 +4,26 @@ from typing import Any, Dict, List
 
 import httpx
 
-from .base import BaseLLM, LLMError
+from .base import BaseLLM, LLMError, LLMHTTPError, LLMTruncatedError
+
+
+def _friendly_http_error(status: int, text: str) -> str:
+    """把供应商返回的 HTTP 错误翻译成人话。
+
+    特别是 402（余额不足）与 401（Key 失效）：以前它们会被包装成
+    "JSON 解析失败"，用户完全看不出是欠费还是格式问题。
+    """
+    if status == 401:
+        return "模型接口鉴权失败（401）：API Key 无效或已过期，请到「大模型供应商」重新填写并保存"
+    if status == 402:
+        return "模型账户余额不足（402）：请到供应商后台充值后再试"
+    if status == 429:
+        return "模型接口限流（429）：请求太频繁或超出配额，稍后再试，或换一个供应商"
+    if status == 400:
+        return "模型接口参数错误（400）：" + text[:200]
+    if status >= 500:
+        return "模型服务端错误（%d）：供应商暂时故障，稍后重试即可" % status
+    return "模型接口返回错误 %d：%s" % (status, text[:200])
 
 
 class OpenAICompatLLM(BaseLLM):
@@ -54,7 +73,7 @@ class OpenAICompatLLM(BaseLLM):
                 last_exc = exc
                 continue
             except httpx.HTTPStatusError as exc:
-                raise LLMError("模型接口返回错误 " + str(exc.response.status_code) + ": " + exc.response.text[:500]) from exc
+                raise LLMHTTPError(_friendly_http_error(exc.response.status_code, exc.response.text)) from exc
         raise LLMError("调用模型失败: " + str(last_exc))
 
     def _request(self, messages, temperature: float, **kwargs: Any) -> str:
@@ -66,10 +85,32 @@ class OpenAICompatLLM(BaseLLM):
             resp = self._post(url, payload, headers)
             resp.raise_for_status()
             data = resp.json()
-            return data["choices"][0]["message"]["content"]
+            choice = (data.get("choices") or [{}])[0]
+            content = ((choice.get("message") or {}).get("content") or "")
+            # finish_reason=length 说明输出被 max_tokens 掐断：JSON 必然不完整，
+            # 与其让上层报"未找到合法 JSON"，不如直接说清是输出太长
+            if choice.get("finish_reason") == "length":
+                cap = payload.get("max_tokens")
+                raise LLMTruncatedError(
+                    "模型输出被截断" + ("（达到输出上限 max_tokens=%s）" % cap if cap else "") +
+                    "：内容太长，请缩短视频或换输出上限更大的模型"
+                )
+            return content
         except httpx.HTTPStatusError as exc:
-            detail = exc.response.text[:500]
-            raise LLMError("模型接口返回错误 " + str(exc.response.status_code) + ": " + detail) from exc
+            status = exc.response.status_code
+            body = exc.response.text or ""
+            # 有的供应商 max_tokens 上限更低：这类 400 去掉该参数再试一次，
+            # 免得因为一个可选参数把整篇笔记卡死
+            if status == 400 and "max_tokens" in body and payload.get("max_tokens"):
+                payload.pop("max_tokens", None)
+                try:
+                    retry = self._post(url, payload, headers)
+                    retry.raise_for_status()
+                    data = retry.json()
+                    return ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+                except Exception:  # noqa: BLE001  还是失败就按原始错误抛出
+                    pass
+            raise LLMHTTPError(_friendly_http_error(status, body)) from exc
         except LLMError:
             raise
         except Exception as exc:  # noqa: BLE001

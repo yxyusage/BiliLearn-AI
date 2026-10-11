@@ -16,6 +16,9 @@ PROVIDERS: Dict[str, Dict[str, Any]] = {
         "kind": "openai",
         "need_key": True,
         "key_url": "https://platform.deepseek.com/api_keys",
+        # 单次回复输出上限（DeepSeek 官方上限 8192）。不设的话默认只有 4096，
+        # 长视频汇总整篇笔记 JSON 时会被截断成半截，表现为"未找到合法 JSON"。
+        "max_output_tokens": 8192,
     },
     "kimi": {
         "name": "Kimi (Moonshot)",
@@ -25,6 +28,7 @@ PROVIDERS: Dict[str, Dict[str, Any]] = {
         "kind": "openai",
         "need_key": True,
         "key_url": "https://platform.moonshot.cn/console/api-keys",
+        "max_output_tokens": 8192,
     },
     "qwen": {
         "name": "通义千问",
@@ -34,6 +38,7 @@ PROVIDERS: Dict[str, Dict[str, Any]] = {
         "kind": "openai",
         "need_key": True,
         "key_url": "https://bailian.console.aliyun.com/?apiKey=1",
+        "max_output_tokens": 8192,
     },
     "openai": {
         "name": "OpenAI",
@@ -44,6 +49,7 @@ PROVIDERS: Dict[str, Dict[str, Any]] = {
         "kind": "openai",
         "need_key": True,
         "key_url": "https://platform.openai.com/api-keys",
+        "max_output_tokens": 8192,
     },
     "ollama": {
         "name": "Ollama 本地模型",
@@ -53,6 +59,8 @@ PROVIDERS: Dict[str, Dict[str, Any]] = {
         "kind": "ollama",
         "need_key": False,
         "key_url": "https://ollama.com/download",
+        # Ollama 用 num_predict 控制输出，这里不注入 max_tokens（由用户在本机模型侧调）
+        "max_output_tokens": 0,
     },
 }
 
@@ -71,9 +79,13 @@ def build_llm(
         raise ValueError("不支持的模型供应商: " + str(provider))
     info = PROVIDERS[provider]
     if info["kind"] == "ollama":
-        return OllamaLLM(base_url=base_url or info["base_url"], model=model or info["default_model"])
-    return OpenAICompatLLM(
-        base_url=base_url or info["base_url"],
-        api_key=api_key or "",
-        model=model or info["default_model"],
-    )
+        llm = OllamaLLM(base_url=base_url or info["base_url"], model=model or info["default_model"])
+    else:
+        llm = OpenAICompatLLM(
+            base_url=base_url or info["base_url"],
+            api_key=api_key or "",
+            model=model or info["default_model"],
+        )
+    # 供 chat_json 自动带上 max_tokens：不设就等着被截断（见 base.chat_json）
+    llm.max_output_tokens = int(info.get("max_output_tokens") or 0)
+    return llm
