@@ -26,7 +26,9 @@ import sys
 from typing import Iterable, List, Optional, Tuple
 
 SUPPORTED_MIN = (3, 10)
-SUPPORTED_MAX = (3, 13)      # 与 backend/app/routers/diagnose.py 里的版本检查保持一致
+SUPPORTED_MAX = (3, 14)      # 与 backend/app/routers/diagnose.py 里的版本检查保持一致
+# 查过 PyPI：ctranslate2 4.x 与 av 12~18 都有 cp314 的 win_amd64 轮子（3.14 能装），
+# 但 **cp315 一个都没有** —— 所以 3.15 及以后的预发布版本才是真正装不上的那一类。
 RECOMMENDED = "3.12"
 DOWNLOAD_URL = "https://www.python.org/downloads/"
 
@@ -57,16 +59,19 @@ def check_version(version: Iterable[int]) -> Tuple[str, str]:
         )
     if ver > SUPPORTED_MAX:
         return "too_new", (
-            "Python 版本太新（当前 " + shown + "）：本项目目前支持到 Python "
-            + "%d.%d，推荐 %s。\n" % (SUPPORTED_MAX[0], SUPPORTED_MAX[1], RECOMMENDED)
+            "Python 版本太新（当前 " + shown + "）：本项目支持 Python "
+            + "%d.%d ~ %d.%d，推荐 %s。\n" % (SUPPORTED_MIN[0], SUPPORTED_MIN[1], SUPPORTED_MAX[0], SUPPORTED_MAX[1], RECOMMENDED)
             + "原因：本地语音转写依赖的 " + "、".join(WHEEL_LAG_PACKAGES[:3])
-            + " 等编译型包，官方还没为这个 Python 版本发布预编译包，"
-            + "安装会在依赖解析阶段直接失败（不是网络问题）。\n"
+            + " 等编译型包还没有为这个 Python 版本发布预编译包（3.15 目前仍是预发布版），"
+            + "安装会在依赖解析阶段直接失败 —— **这不是网络问题**。\n"
             + "解决办法：安装 Python " + RECOMMENDED
             + "（安装时务必勾选 “Add python.exe to PATH”），"
-            + "并在「设置 → 应用 → 已安装的应用」里卸载 3.14/3.15 等预发布版本，然后重启程序。\n"
+            + "并卸载该预发布版本后重启程序。\n"
             + "下载地址 " + DOWNLOAD_URL
         )
+    if ver == SUPPORTED_MAX:
+        return "ok", ("Python " + shown + "（依赖可以安装；本项目主要在 3.12 / 3.13 上验证过，"
+                      "遇到问题可换回 " + RECOMMENDED + "）")
     return "ok", "Python " + shown + "（受支持）"
 
 

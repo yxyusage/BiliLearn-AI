@@ -23,13 +23,17 @@ def test_parse_version():
 
 def test_check_version_levels():
     assert pycompat.check_version((3, 9, 1))[0] == "old"
-    for v in ((3, 10, 0), (3, 11, 9), (3, 12, 7), (3, 13, 9)):
+    # 3.14 也要放行：查过 PyPI，ctranslate2 4.x 与 av 都有 cp314 轮子，装得上
+    for v in ((3, 10, 0), (3, 11, 9), (3, 12, 7), (3, 13, 9), (3, 14, 0), (3, 14, 9)):
         assert pycompat.check_version(v)[0] == "ok", (v, pycompat.check_version(v))
-    for v in ((3, 14, 0), (3, 15, 0)):
+    # 3.15 起才是真正装不上的（cp315 轮子一个都没有）
+    for v in ((3, 15, 0), (3, 16, 0)):
         assert pycompat.check_version(v)[0] == "too_new", (v, pycompat.check_version(v))
     # 太长的新版本号不能被误判（(3,13,9) > (3,13) 是元组比较的坑）
     assert pycompat.check_version((3, 13, 99))[0] == "ok"
-    # 提示里必须给出可执行的信息
+    # 3.14 是"可用但未充分验证"，不是拦
+    assert "3.12" in pycompat.check_version((3, 14, 0))[1]
+    # 太新的提示里必须给出可执行的信息
     msg = pycompat.check_version((3, 15, 0))[1]
     assert "3.12" in msg and "ctranslate2" in msg and "python.org" in msg
     print("check-version OK")

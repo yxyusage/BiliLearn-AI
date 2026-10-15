@@ -7,21 +7,23 @@
 - 报 `ResolutionImpossible`，并附带 `no matching distributions available for your environment: ctranslate2`
 
 ### 根因
-- 用户在 **Python 3.14 / 3.15（预发布版）** 上运行。本地语音转写依赖 `ctranslate2`、`av` 等**编译型包**，
+- 用户在 **Python 3.15（预发布版）** 上运行。本地语音转写依赖 `ctranslate2`、`av` 等**编译型包**，
   官方只为**已发布**的 Python 版本提供预编译包 → pip 找不到可装版本 → 依赖解析直接失败。
+  （查过 PyPI：ctranslate2 4.x 与 av 12~18 都已提供 **cp314** 轮子，**cp315 一个都没有** ——
+  所以 3.14 是能装的，真正装不上的是 3.15 及以后的预发布版本。最初判断把 3.14 也算进去了，已更正。）
 - 另一位用户的 **Python 3.15 已卸载但 PATH 残留**，启动器把这个"幽灵路径"当成可用解释器，
   于是 venv 创建时报 `did not find executable at ...`。
 - 旧版把所有失败都显示成「**请检查网络连接**」—— 和"402 余额不足被显示成 JSON 解析失败"是同一类误导。
 
 ### 修复
 - 新增 `launcher/pycompat.py`（纯标准库，启动器与 start 脚本共用同一套判断）：
-  - **版本闸门**：支持 `3.10 ~ 3.13`、推荐 `3.12`；太旧或太新都在**开始前拦住并说明原因**（附下载地址）
+  - **版本闸门**：支持 `3.10 ~ 3.14`、推荐 `3.12`（3.15 起拦住）；太旧或太新都在**开始前拦住并说明原因**（附下载地址）
   - **解释器可用性校验**：候选 Python 必须文件存在且能跑起来，**自动跳过卸载残留的幽灵路径**
   - **依赖失败分类**：识别 `ResolutionImpossible` / `no matching distribution` → 明确告知
     「缺少 **ctranslate2** 的预编译包，**不是网络问题**，请改用 Python 3.12」；只有真超时才提示网络
 - `start.ps1` / `start.sh` 启动前同样做版本闸门，失败提示也区分两类原因
-- `backend/requirements.txt`：`av` / `faster-whisper` 改为**条件依赖**（`python_version < "3.14"`），
-  3.14+ 用户按**轻量模式**安装即可用上核心功能（有 CC 字幕的视频照样能生成笔记）
+- `backend/requirements.txt`：`av` / `faster-whisper` 改为**条件依赖**（`python_version < "3.15"`），
+  3.15+ 用户按**轻量模式**安装即可用上核心功能（有 CC 字幕的视频照样能生成笔记）
 - 「环境自检」新增 **「Python 版本」** 一项；「离线语音转写」在版本太新时明确说明是轻量模式所致
 - 启动器创建虚拟环境时强制子进程用 UTF-8，修掉日志里的 `??????`（中文系统错误被解码坏了）
 

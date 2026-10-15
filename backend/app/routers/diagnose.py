@@ -91,7 +91,7 @@ def check_python_version() -> Dict[str, str]:
     ⚠️ 版本区间与 launcher/pycompat.py 保持一致，改动要同步两处。
     """
     supported_min = (3, 10)
-    supported_max = (3, 13)
+    supported_max = (3, 14)   # 3.14 已有 cp314 轮子可装；3.15 起仍是预发布版、装不上
     recommended = "3.12"
     ver = sys.version_info[:3]
     shown = "%d.%d.%d" % ver
@@ -100,8 +100,10 @@ def check_python_version() -> Dict[str, str]:
                      "版本过低：请安装 Python " + recommended)
     if ver[:2] > supported_max:
         return _item("python", "Python 版本", "warn", "当前 " + shown + "（推荐 " + recommended + "）",
-                     "版本太新：本地语音转写依赖的 ctranslate2 等还没有对应的预编译包，依赖可能装不上。"
-                     "请改用 Python " + recommended + "（支持 3.10 ~ 3.13）")
+                     "版本太新：本地语音转写依赖的 ctranslate2 / av 还没有该版本的预编译包，依赖装不上。"
+                     "请改用 Python " + recommended + "（支持 3.10 ~ 3.14）")
+    if ver[:2] == supported_max:
+        return _item("python", "Python 版本", "ok", "当前 " + shown + "（未充分验证，推荐 " + recommended + "）")
     return _item("python", "Python 版本", "ok", "当前 " + shown)
 
 
@@ -135,7 +137,7 @@ def check_whisper_ready(db: Session) -> Dict[str, str]:
         detail = "开关：%s · 模型：%s · faster-whisper：%s" % (
             "已开启" if enabled else "未开启", model, "已安装" if installed else "未安装")
         if not installed:
-            too_new = sys.version_info[:2] > (3, 13)
+            too_new = sys.version_info[:2] > (3, 14)
             hint = ("你的 Python 版本太新（当前 %d.%d），本项目按轻量模式安装、不含本地语音转写："
                     "没有字幕的视频会失败。装 Python 3.12 可恢复该功能"
                     % sys.version_info[:2]) if too_new else                    "未安装 faster-whisper：没有字幕的视频会失败。重新运行一次启动器即可自动安装"

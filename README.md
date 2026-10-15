@@ -67,18 +67,19 @@
 
 ### 环境要求
 
-- **Python 3.10 ~ 3.13，推荐 3.12**（实测 3.13.9 完整安装依赖约 3 分钟）
+- **Python 3.10 ~ 3.14，推荐 3.12**（实测 3.13.9 完整安装依赖约 3 分钟）
 - Node.js 18+（仅在前端未预构建时需要，便携版已内置构建产物）
 
-> **⚠️ 不要使用 Python 3.14 / 3.15 等预发布版本。** 本地语音转写依赖 `ctranslate2`（faster-whisper 的推理后端），
-> 这类**编译型包只为已发布的 Python 版本提供预编译包**，在新版本上会在依赖解析阶段直接失败
+> **⚠️ 3.15 及以后的预发布版本装不上依赖。** 本地语音转写依赖 `ctranslate2`（faster-whisper 的推理后端），
+> 这类**编译型包只为已发布的 Python 版本提供预编译包**：实测 **3.14 已有 cp314 轮子（可以装）**，
+> 而 3.15 这类还在 alpha 的版本一个都没有，会在依赖解析阶段直接失败
 > （报 `ResolutionImpossible` 或 `no matching distribution found for ctranslate2`）——**这不是网络问题**。
 >
 > 本版起：启动器与 `start` 脚本会**在执行前检查 Python 版本并给出明确提示**，界面里的「环境自检」也有「Python 版本」一项；
-> 在 3.14+ 上会按**轻量模式**安装（核心功能可用，但没有本地语音转写与视频取帧）。
+> 3.15+ 上会按**轻量模式**安装（核心功能可用，但没有本地语音转写与视频取帧）。
 >
 > 安装 Python 时勾选「Add Python to PATH」。安装完成后在终端执行 `python --version` 和 `node --version`，能显示版本号即可。
-> 若曾装过 3.14 / 3.15 alpha 又卸载，请在「设置 → 应用 → 已安装的应用」里彻底卸载，避免残留路径导致
+> 若曾装过 alpha 版（如 3.15）又卸载，请在「设置 → 应用 → 已安装的应用」里彻底卸载，避免残留路径导致
 > `did not find executable at '...\Python3xx\python.exe'`。
 
 ### 方式一：便携版（Windows，推荐）
@@ -277,9 +278,9 @@ BiliLearn-AI/
 ## 常见问题
 
 **安装依赖失败，提示 `ResolutionImpossible` / `no matching distribution found for ctranslate2`？**
-**不是网络问题，是 Python 版本太新。** `ctranslate2`、`onnxruntime`、`av` 这类编译型包只为**已发布**的 Python 版本
-提供预编译包。请安装 **Python 3.12**（3.10 ~ 3.13 均可），并在「设置 → 应用 → 已安装的应用」里卸载 3.14 / 3.15 等
-预发布版本，然后重启程序。
+**不是网络问题，是 Python 版本太新。** `ctranslate2`、`av` 这类编译型包只为**已发布**的 Python 版本提供预编译包
+（3.14 已经有 cp314 轮子，所以只有 3.15 及以后的预发布版本会踩到）。请安装 **Python 3.12**（3.10 ~ 3.14 均可），
+并在「设置 → 应用 → 已安装的应用」里卸载该预发布版本，然后重启程序。
 
 **提示 `did not find executable at '...\Python3xx\python.exe'`？**
 系统里残留了已卸载 / 已损坏的 Python 路径（典型情况：装过 3.15 alpha 又删掉）。请安装 Python 3.12 并勾选
