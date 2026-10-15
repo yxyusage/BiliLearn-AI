@@ -35,8 +35,16 @@ bypass_dead_proxy() {
 bypass_dead_proxy
 
 if ! command -v python3 >/dev/null 2>&1; then
-  echo "[错误] 未检测到 python3，请先安装 Python 3.10+"
+  echo "[错误] 未检测到 python3，请先安装 Python 3.12（支持 3.10 ~ 3.13）"
   exit 1
+fi
+
+# 版本闸门：太旧、或太新（3.14+ 的 ctranslate2/onnxruntime 等还没发布预编译包）都拦住并说明原因
+if [ -f "launcher/pycompat.py" ]; then
+  if ! python3 launcher/pycompat.py --check; then
+    echo "[错误] 上面的 Python 版本无法使用，请按提示处理后再运行"
+    exit 1
+  fi
 fi
 
 if [ ! -d ".venv" ]; then
@@ -80,7 +88,8 @@ if [ ! -f ".venv/.requirements.stamp" ] || [ "backend/requirements.txt" -nt ".ve
   fi
 
   if [ "$installed" -ne 1 ]; then
-    echo "[错误] 依赖安装失败，请检查网络"
+    echo "[错误] 依赖安装失败。若上面出现 no matching distribution / ResolutionImpossible，"
+    echo "       说明 Python 版本太新（缺少预编译包），请改用 Python 3.12；否则请检查网络或代理。"
     exit 1
   fi
   cp backend/requirements.txt .venv/.requirements.stamp

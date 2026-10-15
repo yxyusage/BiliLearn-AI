@@ -30,6 +30,7 @@ jobs:
           python backend/tests/test_bili_links.py
           python backend/tests/test_llm_json.py
           python backend/tests/test_review_plan.py
+          python backend/tests/test_pycompat.py
 
   frontend:
     runs-on: ubuntu-latest

@@ -12,6 +12,7 @@ HF 端点、Xet、字幕、音频下载、LLM Key 任何一环出问题，表现
 import os
 import platform
 import re
+import sys
 import time
 from typing import Dict, List, Optional
 
@@ -82,6 +83,28 @@ def check_data_dir() -> Dict[str, str]:
         return _item("data_dir", "数据目录", "fail", str(exc))
 
 
+def check_python_version() -> Dict[str, str]:
+    """Python 版本是否受支持。
+
+    3.14+ 上 ctranslate2 / onnxruntime / av 这些编译型包还没有 wheel，依赖装不上，
+    用户很容易误以为是网络问题（旧提示也确实这么说）。这里提前说清。
+    ⚠️ 版本区间与 launcher/pycompat.py 保持一致，改动要同步两处。
+    """
+    supported_min = (3, 10)
+    supported_max = (3, 13)
+    recommended = "3.12"
+    ver = sys.version_info[:3]
+    shown = "%d.%d.%d" % ver
+    if ver[:2] < supported_min:
+        return _item("python", "Python 版本", "fail", "当前 " + shown + "（需要 3.10 及以上）",
+                     "版本过低：请安装 Python " + recommended)
+    if ver[:2] > supported_max:
+        return _item("python", "Python 版本", "warn", "当前 " + shown + "（推荐 " + recommended + "）",
+                     "版本太新：本地语音转写依赖的 ctranslate2 等还没有对应的预编译包，依赖可能装不上。"
+                     "请改用 Python " + recommended + "（支持 3.10 ~ 3.13）")
+    return _item("python", "Python 版本", "ok", "当前 " + shown)
+
+
 def check_deps() -> Dict[str, str]:
     try:
         parts = ["%s %s" % (n, v) for n, v in (
@@ -112,8 +135,11 @@ def check_whisper_ready(db: Session) -> Dict[str, str]:
         detail = "开关：%s · 模型：%s · faster-whisper：%s" % (
             "已开启" if enabled else "未开启", model, "已安装" if installed else "未安装")
         if not installed:
-            return _item("whisper", "离线语音转写", "warn", detail,
-                         "未安装 faster-whisper：没有字幕的视频会失败。重新运行一次启动器即可自动安装")
+            too_new = sys.version_info[:2] > (3, 13)
+            hint = ("你的 Python 版本太新（当前 %d.%d），本项目按轻量模式安装、不含本地语音转写："
+                    "没有字幕的视频会失败。装 Python 3.12 可恢复该功能"
+                    % sys.version_info[:2]) if too_new else                    "未安装 faster-whisper：没有字幕的视频会失败。重新运行一次启动器即可自动安装"
+            return _item("whisper", "离线语音转写", "warn", detail, hint)
         if not enabled:
             return _item("whisper", "离线语音转写", "warn", detail,
                          "未开启：没有字幕的视频会直接失败，可在「离线语音转写」里打开")
@@ -326,6 +352,7 @@ def diagnose(request: Request,
             page = int(m.group(1))
     items: List[Dict[str, str]] = [
         check_runtime(request),
+        check_python_version(),
         check_data_dir(),
         check_deps(),
         check_bili_connectivity(),

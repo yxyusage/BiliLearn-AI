@@ -11,7 +11,11 @@ pydantic>=2.9.2
 pydantic-settings>=2.0.0
 httpx>=0.27.2
 yt-dlp>=2025.1.15
-av>=12.0.0,<19
+# 本地语音转写与视频取帧（av / faster-whisper）：依赖 ctranslate2、PyAV 等**编译型包**，
+# 它们只为已发布的 Python 版本提供 wheel。Python 3.14+ 上装不上，所以做成条件依赖：
+# 新版 Python 的用户仍能装上核心功能（有 CC 字幕的视频照样能生成笔记），只是没有本地转写/取帧。
+# 相关的错误提示见 launcher/pycompat.py（会明确告诉用户"Python 版本太新"而不是"检查网络"）。
+av>=12.0.0,<19; python_version < "3.14"
 python-multipart>=0.0.12
-faster-whisper>=1.0.3
+faster-whisper>=1.0.3; python_version < "3.14"
 genanki>=0.13.1

@@ -19,8 +19,12 @@ _HERE = Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 import fastdeps  # noqa: E402
+import pycompat  # noqa: E402  Python 版本与「依赖装不上」的判断（和 start 脚本共用）
 
-VERSION = "1.8.10"
+# 最近一次"找到但不可用"的 Python（供界面给出可读原因）
+LAST_PYTHON_PROBLEM = ""
+
+VERSION = "1.8.11"
 APP_NAME = "BiliLearn-AI"
 GITHUB_REPO = "yxyusage/BiliLearn-AI"
 DEFAULT_PORT = 8000
@@ -157,16 +161,27 @@ def get_pip_executable():
 
 
 def find_system_python():
-    """定位系统 Python。
+    """定位**确实可用**的系统 Python。
 
     打包成 exe 后 sys.executable 指向 exe 自身而非 Python，必须从 PATH 查找。
+    注意：PATH / 注册表里可能残留已卸载的 Python 路径（用户装过 3.15 alpha 又删掉就是
+    这种情况，报错是 venv 的 "did not find executable at '...\\Python315\\python.exe'"），
+    所以每个候选都要真跑一次确认，能用才返回。
     """
+    global LAST_PYTHON_PROBLEM
     if not getattr(sys, "frozen", False):
         return sys.executable
+    candidates = []
     for name in ("python", "python3"):
         path = shutil.which(name)
-        if path:
+        if path and path not in candidates:
+            candidates.append(path)
+    for path in candidates:
+        ok, _ver, err = pycompat.probe_python(path)
+        if ok:
+            LAST_PYTHON_PROBLEM = ""
             return path
+        LAST_PYTHON_PROBLEM = path + " —— " + err
     return ""
 
 
@@ -229,6 +244,17 @@ class ServiceManager:
         self.running = False
         self.starting = False
         self._cancel_requested = False
+        # 安装过程的输出尾巴：失败时用它判断到底是"网络"还是"Python 版本太新"
+        self._install_tail = []
+
+    def _log_install(self, msg):
+        """安装日志：既显示在界面，也留一份给失败原因判断用。"""
+        try:
+            self._install_tail.append(str(msg))
+            del self._install_tail[:-80]
+        except Exception:  # noqa: BLE001
+            pass
+        self.log(msg)
 
     def set_progress(self, fraction, text=""):
         """把安装/下载进度推给界面（fraction 为 -1 表示只更新文案）。"""
@@ -240,21 +266,23 @@ class ServiceManager:
     def check_python(self):
         python = find_system_python()
         if not python:
-            return False, "未找到 Python"
-        try:
-            result = subprocess.run(
-                [python, "-c", "import sys; print('%d.%d.%d' % sys.version_info[:3])"],
-                capture_output=True, text=True, timeout=10,
-                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-            )
-            if result.returncode != 0:
-                return False, "Python 无法正常运行"
-            version = tuple(int(x) for x in result.stdout.strip().split("."))
-            if version < (3, 10):
-                return False, f"Python 版本过低（当前 {result.stdout.strip()}），需要 3.10 或更高版本"
-            return True, result.stdout.strip()
-        except Exception as e:
-            return False, str(e)
+            if LAST_PYTHON_PROBLEM:
+                self.log("找到的 Python 无法使用：" + LAST_PYTHON_PROBLEM)
+                return False, (
+                    "检测到的 Python 已不可用（" + LAST_PYTHON_PROBLEM + "）。\n"
+                    "请安装 Python " + pycompat.RECOMMENDED + "（安装时勾选 “Add python.exe to PATH”），"
+                    "并卸载 3.14/3.15 等预发布版本后重启程序。\n" + pycompat.DOWNLOAD_URL
+                )
+            return False, "未找到 Python（请先安装 Python " + pycompat.RECOMMENDED + "）"
+        ok, version, err = pycompat.probe_python(python)
+        if not ok:
+            return False, "Python 无法正常运行：" + err
+        # 版本闸门：太旧/太新都直接拦住，并给出可照做的说明
+        _level, message = pycompat.check_version(pycompat.parse_version(version))
+        if _level != "ok":
+            self.log(message.replace("\n", " | "))
+            return False, message
+        return True, version
 
     def check_venv(self):
         return get_python_executable().exists()
@@ -266,10 +294,14 @@ class ServiceManager:
             return False
         self.log("创建虚拟环境...")
         env, proxy_state = build_subprocess_env()
+        # 强制子进程输出 UTF-8：否则中文系统错误（如"系统找不到指定的文件"）会变成 ??????
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUTF8"] = "1"
         try:
             subprocess.run(
                 [python, "-m", "venv", str(VENV_DIR)],
-                check=True, capture_output=True, text=True, env=env,
+                check=True, capture_output=True, text=True,
+                encoding="utf-8", errors="replace", env=env,
                 creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
             )
             self.log("虚拟环境创建完成")
@@ -304,7 +336,7 @@ class ServiceManager:
         try:
             ok = fastdeps.install(
                 python, req,
-                log=self.log,
+                log=self._log_install,
                 progress=self._on_install_progress,
                 cancel=lambda: self._cancel_requested,
             )
@@ -395,7 +427,7 @@ class ServiceManager:
             if not line:
                 continue
             state["last"] = time.monotonic()
-            self.log("  " + line)
+            self._log_install("  " + line)
             self.set_progress(-1, line[:120] + f"（已用 {int(time.monotonic() - started)}s）")
         code = proc.wait()
         if state["killed"]:
@@ -497,7 +529,12 @@ class ServiceManager:
 
         self.set_status("安装依赖...", COLORS["warning"])
         if not self.install_dependencies():
-            self.log("依赖安装失败，请检查网络连接")
+            # 区分"网络问题"和"Python 版本太新导致没有预编译包"——以前一律说网络，误导用户
+            kind, hint = pycompat.classify_pip_failure("\n".join(self._install_tail))
+            if hint:
+                self.log("依赖安装失败：" + hint.replace("\n", "\n  "))
+            else:
+                self.log("依赖安装失败，请检查网络连接")
             self.set_status("启动失败", COLORS["error"])
             self.starting = False
             return
