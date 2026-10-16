@@ -32,11 +32,62 @@ def _make_headers(cookie: str = "") -> dict:
     return headers
 
 
+def normalize_cookie(cookie: str) -> str:
+    """把从浏览器复制来的 Cookie 清理成合法的请求头值。
+
+    浏览器里 Ctrl+A 复制整张 Cookie 表格时，会连带复制到中文表头
+    （名称/值/域/路径）、制表符、换行和引号，httpx 在编码请求头时会直接
+    抛 "'ascii' codec can't encode characters"。这里只保留 name=value
+    形式的 ASCII 片段，其余一律丢弃。
+    """
+    cookie = (cookie or "").strip()
+    if not cookie:
+        return ""
+    pairs = []
+    seen = set()
+
+    def add(name: str, value: str) -> None:
+        name = (name or "").strip().strip('"').strip("'")
+        value = (value or "").strip().strip('"').strip("'")
+        if not name or not value:
+            return
+        # cookie 名必须是 token 字符，值只允许可见 ASCII
+        if not re.fullmatch(r"[A-Za-z0-9_\-\.]+", name):
+            return
+        if not re.fullmatch(r"[\x21-\x7E]*", value):
+            return
+        if name in seen:
+            return
+        seen.add(name)
+        pairs.append(name + "=" + value)
+
+    for line in cookie.replace("\r", "\n").split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        # 情况一：浏览器 Cookie 表格整表复制 → 制表符分隔的 TSV，
+        # 第 1 列是名称、第 2 列是值（后面还有域/路径/过期时间等列，忽略）。
+        if "\t" in line and "=" not in line:
+            fields = [f.strip() for f in line.split("\t")]
+            if len(fields) >= 2:
+                add(fields[0], fields[1])
+            continue
+        # 情况二：标准的 "name=value; name2=value2" 形式
+        for piece in re.split(r"[;\t]+", line):
+            piece = piece.strip()
+            if not piece or "=" not in piece:
+                continue
+            name, _, value = piece.partition("=")
+            add(name, value)
+
+    return "; ".join(pairs)
+
+
 def has_sessdata(cookie: str) -> bool:
     """SESSDATA 才是 B站的登录凭证，没有它 Cookie 只能是游客身份。"""
     return any(
         part.strip().lower().startswith("sessdata=")
-        for part in (cookie or "").split(";")
+        for part in normalize_cookie(cookie).split(";")
         if part.strip()
     )
 
@@ -47,7 +98,7 @@ def cookie_file(cookie: str) -> str:
     yt-dlp 原生支持 cookiefile，比硬塞到 http_headers['Cookie'] 可靠：
     它会把 Cookie 与 buvid 一起交给请求层，登录态才能真正作用于字幕/受限视频。
     """
-    cookie = (cookie or "").strip()
+    cookie = normalize_cookie(cookie)
     if not cookie:
         return ""
     rows = []
@@ -81,14 +132,24 @@ def clear_cookie_file() -> None:
 
 def verify_cookie(cookie: str) -> dict:
     """调用 B站 nav 接口判断 Cookie 处于什么状态，返回可直接展示给用户的结论。"""
-    cookie = (cookie or "").strip()
-    if not cookie:
+    raw = (cookie or "").strip()
+    if not raw:
         return {
             "has_cookie": False,
             "has_sessdata": False,
             "logged_in": False,
             "uname": "",
             "message": "尚未配置 Cookie（不配置也能用，只是拿不到需要登录才可见的字幕）",
+        }
+    cookie = normalize_cookie(raw)
+    if not cookie:
+        return {
+            "has_cookie": True,
+            "has_sessdata": False,
+            "logged_in": False,
+            "uname": "",
+            "message": "没能从这段文本里解析出有效 Cookie。请只复制表格里 name/value 的内容，"
+                       "不要带上「名称 / 值 / 域 / 路径」这类表头文字。",
         }
     sess = has_sessdata(cookie)
     try:
