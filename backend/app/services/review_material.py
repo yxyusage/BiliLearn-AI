@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from ..database import SessionLocal
 from ..models import CollectionJob, Note, ReviewMaterial
-from ..services.llm.base import BaseLLM
+from ..services.llm.base import BaseLLM, LLMTruncatedError
 from ..services.note_generator import normalize_note
 from ..services.prompts import (SUBJECTS, review_chapter_prompt, review_material_prompt,
                                 review_outline_prompt, review_wrapup_prompt)
@@ -62,7 +62,7 @@ def _set_progress(mat_id: int, progress: str):
         db.close()
 
 
-def generate_review_material(mat_id: int, llm: BaseLLM, detail: str = "full"):
+def generate_review_material(mat_id: int, llm: BaseLLM, detail: str = "full", chapter_limit: int = 0):
     subject = ""
     job_title = ""
     db = SessionLocal()
@@ -117,14 +117,18 @@ def generate_review_material(mat_id: int, llm: BaseLLM, detail: str = "full"):
             _set_progress(mat_id, "正在 AI 重排知识体系（简版，一次成型）…")
             data = _generate_brief(llm, subject, job_title, distilled)
         else:
-            data = _generate_full(mat_id, llm, subject, job_title, distilled)
+            data = _generate_full(mat_id, llm, subject, job_title, distilled, chapter_limit)
 
         db = SessionLocal()
         try:
             mat = db.query(ReviewMaterial).filter(ReviewMaterial.id == mat_id).first()
             mat.result_json = json.dumps(data, ensure_ascii=False)
             mat.status = "done"
-            mat.progress = "完成"
+            # 有章节没生成出来时，把原因放进 error 字段 —— 界面会显示成警告条，
+            # 不再像以前那样"看着成功、其实大片空白"
+            warns = data.get("_warnings") or []
+            mat.error = "；".join(str(w) for w in warns)[:500] if warns else ""
+            mat.progress = "完成" + ("（有警告）" if warns else "")
             if not mat.title:
                 mat.title = data.get("title") or (job_title + " 复习资料")
             db.commit()
@@ -149,7 +153,11 @@ def generate_review_material(mat_id: int, llm: BaseLLM, detail: str = "full"):
 # 拆成三步后，每一步的输入输出都有界，每章才能写足细节。
 
 MAX_CHAPTERS = 24               # 章数上限：防止模型排出几十章导致调用次数与费用失控
-MAX_EPISODES_PER_CHAPTER = 8    # 单章最多处理几集，超了拆成"（续）"
+MAX_EPISODES_PER_CHAPTER = 4    # 单章最多处理几集（数量上限，超了拆成"（续）"）
+# **体积**上限（比数量更关键）：实测 1 集的正文输出约 5000 tokens，
+# 而 DeepSeek 的输出上限是 8192 —— 所以「集内容」的提示词预算必须控制住，
+# 否则必然截断（截断的输入+输出全都要付费，而且拿不到任何内容）。
+EPISODE_CHARS_BUDGET = 12000    # 单次请求里"集内容 JSON"的字数上限（约 6k 输出 tokens）
 CHAPTER_WORKERS = 2             # 逐章并发生成数（保守，避免触发限流）
 
 
@@ -229,19 +237,43 @@ def plan_chapters(outline: Any, distilled: List[dict], max_chapters: int = MAX_C
         keep.append({"title": "综合专题（合并 " + str(len(rest)) + " 章）", "intro": "", "pages": pages})
         plans = keep
 
+    # 切成小块：**同时**受"集数"和"内容体积"两个上限约束。
+    # 体积这一条是关键：密集课程（如大学物理）1 集的正文输出就有 5000 tokens，
+    # 凑成 4 集必然超过 8192 的输出上限 → 整章截断成空。
     expanded: List[dict] = []
     for p in plans:
-        if len(p["pages"]) <= MAX_EPISODES_PER_CHAPTER:
+        chunks: List[List[int]] = []
+        cur: List[int] = []
+        size = 0
+        for page in p["pages"]:
+            chars = _episode_chars(by_page.get(page))
+            if cur and (len(cur) >= MAX_EPISODES_PER_CHAPTER or size + chars > EPISODE_CHARS_BUDGET):
+                chunks.append(cur)
+                cur, size = [], 0
+            cur.append(page)
+            size += chars
+        if cur:
+            chunks.append(cur)
+        if len(chunks) <= 1:
             expanded.append(p)
             continue
-        for i in range(0, len(p["pages"]), MAX_EPISODES_PER_CHAPTER):
-            chunk = p["pages"][i:i + MAX_EPISODES_PER_CHAPTER]
+        for i, chunk in enumerate(chunks):
             expanded.append({
-                "title": p["title"] if i == 0 else (p["title"] + "（续）"),
+                "title": p["title"] if i == 0 else (p["title"] + "（续" + str(i) + "）"),
                 "intro": p["intro"] if i == 0 else "",
                 "pages": chunk,
             })
     return expanded
+
+
+def _episode_chars(ep: Optional[dict]) -> int:
+    """估算一集喂给模型的内容体积（用来控制单次请求的输出规模）。"""
+    if not ep:
+        return 0
+    try:
+        return len(json.dumps(ep, ensure_ascii=False))
+    except Exception:  # noqa: BLE001
+        return 1000
 
 
 def assemble_material(wrapup: Any, chapters: List[dict], answers: List[dict],
@@ -289,14 +321,22 @@ def _generate_brief(llm: BaseLLM, subject: str, job_title: str, distilled: List[
     )
 
 
-def _generate_full(mat_id: int, llm: BaseLLM, subject: str, job_title: str, distilled: List[dict]) -> dict:
-    """详版：① 排大纲 → ② 逐章生成 → ③ 补全局信息。"""
+def _generate_full(mat_id: int, llm: BaseLLM, subject: str, job_title: str, distilled: List[dict],
+                   chapter_limit: int = 0) -> dict:
+    """详版：① 排大纲 → ② 逐章生成 → ③ 补全局信息。
+
+    chapter_limit > 0 时只生成前 N 章（用于小额试跑 / 控制花费）。
+    """
     _set_progress(mat_id, "① 正在规划章节目录（" + str(len(distilled)) + " 集）…")
     digest = json.dumps(episode_digest(distilled), ensure_ascii=False)
     outline = llm.chat_json(review_outline_prompt(job_title, subject, digest))
     plans = plan_chapters(outline, distilled)
     if not plans:
         raise RuntimeError("章节规划失败：没有把任何一集分配进章节")
+    if chapter_limit and len(plans) > chapter_limit:
+        skipped = len(plans) - chapter_limit
+        _set_progress(mat_id, "① 按设置只生成前 " + str(chapter_limit) + " 章（跳过 " + str(skipped) + " 章）")
+        plans = plans[:chapter_limit]
     total = len(plans)
     _set_progress(mat_id, "② 开始逐章生成（共 " + str(total) + " 章）…")
 
@@ -308,51 +348,117 @@ def _generate_full(mat_id: int, llm: BaseLLM, subject: str, job_title: str, dist
             except Exception:  # noqa: BLE001
                 continue
 
-    results: List[Optional[dict]] = [None] * total
+    results: List[Optional[List[dict]]] = [None] * total
     counter = {"done": 0}
+    stats = {"done": 0, "failed": 0}      # 用来及时止损
     lock = threading.Lock()
+
+    def _bump(key):
+        with lock:
+            stats[key] += 1
+
+    def _gen(plan, label, depth=0, episodes=None):
+        """生成一组章节，返回条目列表（被拆过就会有多条）。
+
+        正文单独一次调用；若正文因长度被截断，按两级粒度逐层拆：
+          ① 多集 → 把集数对半拆；
+          ② 只剩一集还是太长 → 拆这一集**内部的章**（一集里常有 5-8 个知识块，
+             物理/数学的密集单集就是卡在这一层）。
+        测验与答案再单独一次调用，输出更小。
+        """
+        pages = [p for p in plan["pages"] if p in by_page]
+        if episodes is None:
+            episodes = [by_page[p] for p in pages]
+        # 止损：失败远多于成功说明是系统性问题（额度、模型故障、内容过大），
+        # 再跑下去只是继续烧钱，直接中止并说清原因
+        if depth == 0:
+            with lock:
+                if stats["failed"] >= 4 and stats["failed"] > stats["done"] * 1.5:
+                    raise RuntimeError(
+                        "多数章节都生成失败（失败 " + str(stats["failed"]) + " / 成功 " + str(stats["done"])
+                        + "），已中止以免继续消耗额度。请检查模型配置与余额后重试")
+        eps = json.dumps(episodes, ensure_ascii=False)
+        chapter = None
+        appendix: dict = {}
+        last_err = ""
+        for attempt in range(2):
+            try:
+                data = llm.chat_json(review_chapter_prompt(
+                    job_title, subject, plan, eps, label, total, part="content"))
+                if isinstance(data, dict):
+                    ch = data.get("chapter")
+                    if not isinstance(ch, dict) and data.get("sections"):
+                        ch = data           # 兼容：模型直接把章节对象吐出来
+                    if isinstance(ch, dict) and ch:
+                        chapter = ch
+                        appendix = data.get("appendix") or {}
+                        break
+                last_err = "返回结构不符合要求"
+            except LLMTruncatedError:
+                # ① 多集就够大 → 把集数对半拆
+                if len(pages) > 1 and depth < 4:
+                    mid = len(pages) // 2
+                    out: List[dict] = []
+                    for k, half in enumerate((pages[:mid], pages[mid:]), 1):
+                        sub = {"title": plan["title"] + "（" + str(k) + "/2）",
+                               "intro": plan["intro"], "pages": half}
+                        out.extend(_gen(sub, label, depth + 1))
+                    return out
+                # ② 只剩一集还是太长 → 拆这一集内部的章（密集单集卡在这一层）
+                inner = (episodes[0] or {}).get("chapters") or [] if len(episodes) == 1 else []
+                if len(inner) > 1 and depth < 4:
+                    mid = len(inner) // 2
+                    out = []
+                    for k, part in enumerate((inner[:mid], inner[mid:]), 1):
+                        sub_ep = dict(episodes[0])
+                        sub_ep["chapters"] = part
+                        sub = {"title": plan["title"] + "（" + str(k) + "/2）",
+                               "intro": plan["intro"], "pages": list(pages)}
+                        out.extend(_gen(sub, label, depth + 1, episodes=[sub_ep]))
+                    return out
+                last_err = "内容超过模型输出上限，拆到最小粒度仍然装不下"
+                break
+            except Exception as exc:  # noqa: BLE001
+                last_err = str(exc)[:160]
+                time.sleep(2)
+        if not chapter:
+            _bump("failed")
+            return [{"chapter": {"title": plan["title"], "intro": plan["intro"], "sections": [], "quiz": []},
+                     "answers": [], "appendix": {}, "error": last_err or "生成失败"}]
+        _bump("done")
+        # 测验与答案：单独一次调用（输出小，不易截断）
+        try:
+            qdata = llm.chat_json(review_chapter_prompt(
+                job_title, subject, plan, eps, label, total, part="quiz"))
+            if isinstance(qdata, dict):
+                chapter["quiz"] = qdata.get("quiz") or []
+                answers = [a for a in (qdata.get("answers") or []) if isinstance(a, dict)]
+            else:
+                answers = []
+                warnings_holder.append("第 " + str(label) + " 章：练习题返回结构不符合要求")
+        except Exception as exc:  # noqa: BLE001
+            answers = []
+            warnings_holder.append("第 " + str(label) + " 章：练习题生成失败（" + str(exc)[:80] + "）")
+        return [{"chapter": chapter, "answers": answers, "appendix": appendix, "error": ""}]
+
+    warnings_holder: List[str] = []
 
     def _one(i_plan):
         i, plan = i_plan
-        eps = json.dumps([by_page[p] for p in plan["pages"] if p in by_page], ensure_ascii=False)
-        msgs = review_chapter_prompt(job_title, subject, plan, eps, i + 1, total)
-        last_err = "返回结构不符合要求"
-        for attempt in range(2):
-            try:
-                data = llm.chat_json(msgs)
-            except Exception as exc:  # noqa: BLE001
-                last_err = str(exc)[:160]
-                if attempt == 0:
-                    time.sleep(2)
-                    continue
-                break
-            chapter = None
-            if isinstance(data, dict):
-                if isinstance(data.get("chapter"), dict):
-                    chapter = data["chapter"]
-                elif data.get("sections"):
-                    chapter = data            # 兼容：模型直接把章节对象吐出来
-            if chapter:
-                return i, {
-                    "chapter": chapter,
-                    "answers": data.get("answers") if isinstance(data, dict) else [],
-                    "appendix": data.get("appendix") if isinstance(data, dict) else {},
-                }
-            last_err = "返回结构不符合要求"
-        # 单章失败不毁掉整份资料：留一个占位章节，把原因记进 warnings
-        return i, {
-            "chapter": {"title": plan["title"], "intro": plan["intro"], "sections": [], "quiz": []},
-            "answers": [], "appendix": {}, "error": last_err,
-        }
+        try:
+            return i, _gen(plan, i + 1)
+        except Exception as exc:  # noqa: BLE001  单章异常不影响整体
+            return i, [{"chapter": {"title": plan["title"], "intro": plan["intro"], "sections": [], "quiz": []},
+                        "answers": [], "appendix": {}, "error": str(exc)[:120]}]
 
     with ThreadPoolExecutor(max_workers=max(1, min(CHAPTER_WORKERS, total))) as pool:
         futures = [pool.submit(_one, x) for x in enumerate(plans)]
         for fut in as_completed(futures):
             try:
-                idx, item = fut.result()
-            except Exception as exc:  # noqa: BLE001  兜底，单章异常不影响整体
-                idx, item = 0, {"chapter": {}, "answers": [], "appendix": {}, "error": str(exc)[:120]}
-            results[idx] = item
+                idx, items = fut.result()
+            except Exception as exc:  # noqa: BLE001
+                idx, items = 0, [{"chapter": {}, "answers": [], "appendix": {}, "error": str(exc)[:120]}]
+            results[idx] = items
             with lock:
                 counter["done"] += 1
                 _set_progress(mat_id, "② 逐章生成 " + str(counter["done"]) + "/" + str(total) + " …")
@@ -360,21 +466,27 @@ def _generate_full(mat_id: int, llm: BaseLLM, subject: str, job_title: str, dist
     chapters: List[dict] = []
     answers: List[dict] = []
     appendices: List[dict] = []
-    warnings: List[str] = []
+    warnings: List[str] = list(warnings_holder)
     for i in range(total):
-        item = results[i] or {}
-        ch = item.get("chapter") or {}
-        if not ch.get("title"):
-            ch["title"] = plans[i]["title"]
-        chapters.append(ch)
-        for a in item.get("answers") or []:
-            if isinstance(a, dict):
-                a = dict(a)
-                a["chapter_index"] = i + 1
-                answers.append(a)
-        appendices.append(item.get("appendix") or {})
-        if item.get("error"):
-            warnings.append("第 " + str(i + 1) + " 章：" + str(item["error"]))
+        for item in (results[i] or [{}]):
+            ch = item.get("chapter") or {}
+            if not ch.get("title"):
+                ch["title"] = plans[i]["title"]
+            chapters.append(ch)
+            for a in item.get("answers") or []:
+                if isinstance(a, dict):
+                    a = dict(a)
+                    a["chapter_index"] = len(chapters)     # 用最终章号（拆章后会变）
+                    answers.append(a)
+            appendices.append(item.get("appendix") or {})
+            if item.get("error"):
+                warnings.append("第 " + str(len(chapters)) + " 章：" + str(item["error"]))
+    # 空章节必须**显式报出来**，不能像以前那样静默标成"完成"
+    empties = [i + 1 for i, ch in enumerate(chapters) if not (ch.get("sections") or [])]
+    if empties:
+        warnings.insert(0, "有 " + str(len(empties)) + " 章没能生成出内容（第 "
+                        + "、".join(str(x) for x in empties[:15])
+                        + ("…" if len(empties) > 15 else "") + " 章）：这些章节在 PDF 里是空的，建议重新生成")
 
     source_map = []
     for p in sorted(by_page):
@@ -842,8 +954,12 @@ def build_review_material_pdf(data: dict, meta: Optional[dict] = None) -> bytes:
     chapters = data.get("chapters") or []
     html_first = render_review_material_html(data, meta, page_numbers=None)
     pdf_first = html_to_pdf(html_first, timeout=120)
-    page_numbers = _scan_toc_page_numbers(pdf_first, len(chapters))
-    if page_numbers:
-        html_final = render_review_material_html(data, meta, page_numbers=page_numbers)
-        return html_to_pdf(html_final, timeout=120)
+    # 带页码的第二次打印失败了，就用第一次的成品 —— 不能把已经打印好的结果丢掉
+    try:
+        page_numbers = _scan_toc_page_numbers(pdf_first, len(chapters))
+        if page_numbers:
+            html_final = render_review_material_html(data, meta, page_numbers=page_numbers)
+            return html_to_pdf(html_final, timeout=120)
+    except Exception:  # noqa: BLE001
+        pass
     return pdf_first

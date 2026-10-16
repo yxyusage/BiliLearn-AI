@@ -120,9 +120,15 @@
             <el-radio-button value="full">详版（推荐）</el-radio-button>
             <el-radio-button value="brief">简版</el-radio-button>
           </el-radio-group>
+          <span v-if="reviewDetail === 'full'" style="display:flex;align-items:center;gap:6px">
+            <span class="review-mode-label">只生成前</span>
+            <el-input-number v-model="reviewChapterLimit" :min="0" :max="200" size="small"
+              controls-position="right" style="width:96px" />
+            <span class="review-mode-label">章（0 = 全部）</span>
+          </span>
           <span class="review-mode-tip">
             {{ reviewDetail === 'full'
-              ? '先排大纲再逐章生成：每章内容更详细，但调用次数更多、耗时更长'
+              ? '先排大纲再逐章生成：每章内容更详细，但调用次数更多、耗时更长（约每章 2 次调用）'
               : '一次调用直接成型：快、便宜，长合集的每章会比较简略' }}
           </span>
         </div>
@@ -147,6 +153,15 @@
           </span>
         </div>
         <el-alert v-if="reviewMat && reviewMat.status === 'failed'" :title="reviewMat.error || '生成失败'" type="error" :closable="false" show-icon style="margin-top:8px" />
+        <el-alert
+          v-if="reviewMat && reviewMat.status === 'done' && reviewMat.error"
+          :title="'生成完成，但有部分章节没成功'"
+          :description="reviewMat.error"
+          type="warning"
+          :closable="false"
+          show-icon
+          style="margin-top:8px"
+        />
       </el-card>
 
       <el-row :gutter="16" v-if="job">
@@ -241,6 +256,8 @@ export default {
       reviewMat: null,
       // 复习资料详细程度：full=详版（逐章生成，内容更足）/ brief=简版（一次成型）
       reviewDetail: localStorage.getItem('bililearn_review_detail') || 'full',
+      // 章节上限：0 = 全部；>0 只生成前 N 章，用于小额试跑/控制花费
+      reviewChapterLimit: Number(localStorage.getItem('bililearn_review_limit') || 0),
       reviewLoading: false,
       reviewTimer: null,
       graphDialogVisible: false,
@@ -515,9 +532,11 @@ export default {
       this.reviewLoading = true
       try {
         localStorage.setItem('bililearn_review_detail', this.reviewDetail)
+        localStorage.setItem('bililearn_review_limit', String(this.reviewChapterLimit || 0))
         var res = await api.post('/review-material/start', {
           collection_job_id: this.jobId,
-          detail: this.reviewDetail
+          detail: this.reviewDetail,
+          chapter_limit: this.reviewChapterLimit || 0
         })
         if (res.id) {
           localStorage.setItem('review_mat_' + this.jobId, String(res.id))

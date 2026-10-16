@@ -605,25 +605,44 @@ def review_outline_prompt(course_title: str, subject: str, episodes_digest: str)
 
 
 def review_chapter_prompt(course_title: str, subject: str, chapter_plan: dict,
-                          episodes_json: str, index: int, total: int):
+                          episodes_json: str, index: int, total: int, part: str = "content"):
+    """生成一章。**拆成两次调用**（part="content" / "quiz"）。
+
+    为什么拆：一次要求"小节 + 测验 + 答案 + 附录"全吐出来，物理这类密集内容会超过
+    8192 的输出上限被截断（实测某份 25 章的资料里 22 章整章为空）。拆开后每次输出都小得多。
+    """
     tpl = SUBJECT_TEMPLATES.get(subject, SUBJECT_TEMPLATES["general"])
     system = REVIEW_MATERIAL_SYSTEM + "\n\n" + tpl
-    user = (
+    head = (
         "合集《" + (course_title or "未命名课程") + "》（学科：" + subject + "）\n"
         "这是全书的第 " + str(index) + " / " + str(total) + " 章：「"
         + str(chapter_plan.get("title") or "") + "」，导读：" + str(chapter_plan.get("intro") or "") + "\n"
         "本章对应各集笔记蒸馏版 JSON：\n" + episodes_json + "\n\n"
-        "请**只写这一章**，只输出一个 JSON 对象，结构如下：\n"
+    )
+    if part == "quiz":
+        user = head + (
+            "请**只出这一章的练习题**，不要写正文。只输出一个 JSON 对象：\n"
+            "{\n"
+            '  "quiz": [{"no": 1, "type": "single|fill|calc|judge|short", '
+            '"difficulty": "basic|medium|advanced", "stem": "", "options": ["选项1"]}],\n'
+            '  "answers": [{"no": 1, "answer": "", "explanation": "精简 1-2 句"}]\n'
+            "}\n"
+            "要求：8-12 题；难度分布 基础 30% / 中档 40% / 拔高 30%；必含 2-3 道 short，"
+            "数理必含 2-3 道 calc；answers 与 quiz 的 no 一一对应。"
+        )
+        return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    # part == "content"：只要正文与附录，明确不要出题（题目由第二次调用单独生成）
+    user = head + (
+        "请**只写这一章的正文**，不要出任何题目。只输出一个 JSON 对象，结构如下：\n"
         "{\n"
-        '  "chapter": { 与上面契约中的单个 chapter 完全一致：title / intro / learning_objectives / '
-        'sections / confusion_points / summary / key_points / quiz },\n'
-        '  "answers": [{"no": 1, "answer": "", "explanation": ""}],\n'
+        '  "chapter": { 与上面契约中的单个 chapter 完全一致，但**不要 quiz**：'
+        'title / intro / learning_objectives / sections / confusion_points / summary / key_points },\n'
         '  "appendix": {"formula_sheet": [{"name": "", "latex": "", "scene": ""}], '
         '"glossary": [{"term": "", "definition": "", "chapter": ""}], '
         '"flash_cards": [{"front": "", "back": ""}]}\n'
         "}\n"
-        "要求：本章内容要写足（小节、公式、例题、代码、对比表格按契约给全，不要因为只有一章就写简略）；"
-        "quiz 8-12 题；answers 与 quiz 的 no 一一对应；appendix 只收本章相关的公式/术语/记忆卡。"
+        "要求：内容要写足（小节、公式、例题、代码、对比表格按契约给全，不要因为只有一章就写简略）；"
+        "appendix 只收本章相关的公式/术语/记忆卡。"
     )
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 

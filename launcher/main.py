@@ -24,7 +24,7 @@ import pycompat  # noqa: E402  Python 版本与「依赖装不上」的判断（
 # 最近一次"找到但不可用"的 Python（供界面给出可读原因）
 LAST_PYTHON_PROBLEM = ""
 
-VERSION = "1.8.11"
+VERSION = "1.8.12"
 APP_NAME = "BiliLearn-AI"
 GITHUB_REPO = "yxyusage/BiliLearn-AI"
 DEFAULT_PORT = 8000

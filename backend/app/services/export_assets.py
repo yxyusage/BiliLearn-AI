@@ -4,9 +4,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import zipfile
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from ..config import DATA_DIR
 
@@ -97,41 +98,70 @@ def _download_pandoc() -> str:
     return str(exe)
 
 
-def html_to_pdf(html: str, timeout: int = 90) -> bytes:
-    """用系统 Edge/Chrome 的 headless 模式把 HTML 打印为 PDF。"""
+def html_to_pdf(html: str, timeout: int = 120, attempts: int = 3) -> bytes:
+    """用系统 Edge/Chrome 的 headless 模式把 HTML 打印为 PDF。
+
+    Edge/Chrome 的 headless 偶发会"启动成功、退出码 0，但没产出 PDF，且 stderr 为空"
+    （上一次打印的后台进程没退干净、浏览器正在自我更新、Windows 安全软件拦写临时目录等）。
+    所以这里做了三件事：
+      1. 每次用全新的 profile 目录重试，并在 --headless=new / --headless 之间互换；
+      2. 进程返回后再等一小会儿文件落盘（浏览器常常是"先返回、后写文件"）；
+      3. 失败时把**退出码 / stderr / stdout**都带进错误信息 —— 绝不返回一句空的"浏览器打印失败："。
+    """
     browser = find_browser()
     if not browser:
         raise RuntimeError("未找到 Microsoft Edge 或 Google Chrome，无法导出 PDF")
-    workdir = Path(tempfile.mkdtemp(prefix="bililearn_pdf_"))
-    html_path = workdir / "note.html"
-    pdf_path = workdir / "note.pdf"
-    profile = workdir / "profile"
-    html_path.write_text(html, encoding="utf-8")
-    cmd = [
-        browser,
-        "--headless=new",
-        "--disable-gpu",
-        "--no-sandbox",
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--disable-features=msEdgeWelcomeFLX,EdgeIdentityAssist,Translate",
-        "--no-pdf-header-footer",
-        "--print-to-pdf-no-header",
-        "--virtual-time-budget=20000",
-        "--user-data-dir=" + str(profile),
-        "--print-to-pdf=" + str(pdf_path),
-        html_path.resolve().as_uri(),
-    ]
-    try:
-        proc = subprocess.run(cmd, capture_output=True, timeout=timeout)
-        if not pdf_path.exists() or pdf_path.stat().st_size < 200:
-            stderr = (proc.stderr or b"").decode("utf-8", "ignore")[-500:]
-            raise RuntimeError("浏览器打印失败：" + stderr)
-        return pdf_path.read_bytes()
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("PDF 渲染超时") from exc
-    finally:
-        shutil.rmtree(workdir, ignore_errors=True)
+    modes = ["--headless=new", "--headless"]
+    problems: List[str] = []
+    for attempt in range(max(1, attempts)):
+        mode = modes[min(attempt, len(modes) - 1)]
+        workdir = Path(tempfile.mkdtemp(prefix="bililearn_pdf_"))
+        try:
+            html_path = workdir / "note.html"
+            pdf_path = workdir / "note.pdf"
+            html_path.write_text(html, encoding="utf-8")
+            cmd = [
+                browser, mode,
+                "--disable-gpu",
+                "--no-sandbox",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--disable-extensions",
+                "--disable-background-networking",
+                "--disable-component-update",
+                "--disable-sync",
+                "--disable-default-apps",
+                "--disable-features=msEdgeWelcomeFLX,EdgeIdentityAssist,Translate",
+                "--no-pdf-header-footer",
+                "--print-to-pdf-no-header",
+                "--virtual-time-budget=20000",
+                "--user-data-dir=" + str(workdir / "profile"),
+                "--print-to-pdf=" + str(pdf_path),
+                html_path.resolve().as_uri(),
+            ]
+            try:
+                proc = subprocess.run(cmd, capture_output=True, timeout=timeout)
+                code, out, err = proc.returncode, proc.stdout or b"", proc.stderr or b""
+            except subprocess.TimeoutExpired as exc:
+                code, out, err = -1, exc.stdout or b"", exc.stderr or b""
+                problems.append("第 " + str(attempt + 1) + " 次（" + mode + "）渲染超时（" + str(timeout) + "s）")
+            # 浏览器常常"先返回、后落盘"，给它一点时间
+            deadline = time.monotonic() + 15
+            while (not pdf_path.exists() or pdf_path.stat().st_size < 200) and time.monotonic() < deadline:
+                time.sleep(0.5)
+            if pdf_path.exists() and pdf_path.stat().st_size >= 200:
+                return pdf_path.read_bytes()
+            tail_err = err.decode("utf-8", "ignore").strip()
+            tail_out = out.decode("utf-8", "ignore").strip()
+            detail = "退出码 " + str(code)
+            detail += ("；stderr: " + tail_err[-300:]) if tail_err else "；stderr 为空"
+            if tail_out:
+                detail += "；stdout: " + tail_out[-200:]
+            problems.append("第 " + str(attempt + 1) + " 次（" + mode + "）未产出 PDF（" + detail + "）")
+            time.sleep(1.5)
+        finally:
+            shutil.rmtree(workdir, ignore_errors=True)
+    raise RuntimeError("浏览器打印失败（已重试 " + str(attempts) + " 次）：" + "；".join(problems))
 
 
 def markdown_to_docx(markdown: str, timeout: int = 90) -> bytes:

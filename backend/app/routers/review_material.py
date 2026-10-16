@@ -21,6 +21,8 @@ class StartRequest(BaseModel):
     # full=详版：先排大纲再逐章生成，长合集每章也能写足；
     # brief=简版：一次调用直接成型（快、便宜，但长合集每章会比较简略）
     detail: str = "full"
+    # 0 = 生成全部章节；>0 时只生成前 N 章（用于小额试跑/控制花费）
+    chapter_limit: int = 0
 
 
 @router.post("/start")
@@ -53,9 +55,10 @@ def start_review_material(req: StartRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(mat)
     llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg.get("model"), llm_cfg.get("base_url"))
+    limit = max(0, int(req.chapter_limit or 0))
     import threading
-    threading.Thread(target=generate_review_material, args=(mat.id, llm, detail), daemon=True).start()
-    return {"id": mat.id, "status": "running", "detail": detail}
+    threading.Thread(target=generate_review_material, args=(mat.id, llm, detail, limit), daemon=True).start()
+    return {"id": mat.id, "status": "running", "detail": detail, "chapter_limit": limit}
 
 
 @router.get("/{mat_id}")
