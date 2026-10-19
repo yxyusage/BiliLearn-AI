@@ -102,7 +102,7 @@ def quiz_generate(req: QuizRequest, db: Session = Depends(get_db)):
         note_json = json.loads(note.note_json)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail="笔记数据损坏") from exc
-    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"])
+    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"], llm_cfg.get("max_tokens"))
     try:
         result = generate_quiz(note_json, note.subject, llm)
     except Exception as exc:  # noqa: BLE001
@@ -129,7 +129,7 @@ def quiz_variant(req: VariantRequest, db: Session = Depends(get_db)):
         note_json = json.loads(note.note_json)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail="笔记数据损坏") from exc
-    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"])
+    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"], llm_cfg.get("max_tokens"))
     try:
         item = feature_service.generate_variant(note_json, note.subject, req.question, llm)
     except Exception as exc:  # noqa: BLE001
@@ -196,7 +196,7 @@ def quiz_judge(req: JudgeRequest, db: Session = Depends(get_db)):
     llm_ok = llm_cfg["provider"] == "ollama" or bool(llm_cfg["api_key"])
     llm = None
     if llm_ok:
-        llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"])
+        llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"], llm_cfg.get("max_tokens"))
 
     per_blank = None
     if req.qtype == "single" and req.options:

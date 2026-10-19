@@ -254,7 +254,7 @@ def _run_generation(note_id: int, llm_cfg: dict):
                 raise ValueError("未获取到字幕。视频可能没有官方字幕，可在配置页开启本地语音转写。")
             note.error = "字幕已就绪，正在生成笔记（长视频会分段处理）..."
             db.commit()
-            llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"])
+            llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"], llm_cfg.get("max_tokens"))
             note_json = note_generator.generate_note(subtitles, note.subject, llm, note.title)
             words = None
             if note.subject == "english":
@@ -540,7 +540,7 @@ def generate_formulas(note_id: int, req: FormulaRequest, db: Session = Depends(g
         raise HTTPException(status_code=500, detail="关键帧提取失败：" + str(exc)) from exc
     if not frames:
         raise HTTPException(status_code=500, detail="未能提取到关键帧")
-    llm = build_llm(cfg["provider"], cfg["api_key"], cfg["model"], cfg["base_url"])
+    llm = build_llm(cfg["provider"], cfg["api_key"], cfg["model"], cfg["base_url"], cfg.get("max_tokens"))
     try:
         result = formula_service.recognize(frames, llm)
     except Exception as exc:  # noqa: BLE001
@@ -602,7 +602,7 @@ def note_chat_stream(note_id: int, req: ChatRequest, db: Session = Depends(get_d
     llm_cfg = resolve_llm_config(db)
     if llm_cfg["provider"] != "ollama" and not llm_cfg["api_key"]:
         raise HTTPException(status_code=400, detail="尚未配置 API Key，请先到「配置」页填写")
-    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"])
+    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"], llm_cfg.get("max_tokens"))
     messages = _build_chat_messages(note, req)
 
     def event_stream():
@@ -630,7 +630,7 @@ def note_chat(note_id: int, req: ChatRequest, db: Session = Depends(get_db)):
     llm_cfg = resolve_llm_config(db)
     if llm_cfg["provider"] != "ollama" and not llm_cfg["api_key"]:
         raise HTTPException(status_code=400, detail="尚未配置 API Key，请先到「配置」页填写")
-    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"])
+    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"], llm_cfg.get("max_tokens"))
     messages = _build_chat_messages(note, req)
     try:
         reply = llm.chat(messages, temperature=0.4)
@@ -673,7 +673,7 @@ def generate_dictation(note_id: int, db: Session = Depends(get_db)):
     llm_cfg = resolve_llm_config(db)
     if llm_cfg["provider"] != "ollama" and not llm_cfg["api_key"]:
         raise HTTPException(status_code=400, detail="尚未配置 API Key，请先到「设置」页填写")
-    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"])
+    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"], llm_cfg.get("max_tokens"))
     transcript = note_generator.build_transcript(subtitles)
     try:
         items = feature_service.generate_dictation(transcript, llm)
@@ -756,7 +756,7 @@ def explain_confusion(note_id: int, cid: int, db: Session = Depends(get_db)):
                 break
     if not section_text:
         section_text = note_generator.note_plain_text(note_json, char_limit=1500)
-    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"])
+    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"], llm_cfg.get("max_tokens"))
     try:
         explanation = feature_service.re_explain_section(note_json, section_text, llm)
     except Exception as exc:  # noqa: BLE001

@@ -205,7 +205,7 @@ def check_llm(db: Session, deep: bool) -> Dict[str, str]:
                          "到「大模型供应商」填好 API Key 并点「保存设置」")
         if not deep:
             return _item("llm", "大模型", "ok", "%s / %s（Key 已配置；勾选深度检测可测连通性）" % (provider, model))
-        llm = build_llm(provider, cfg["api_key"], model, cfg["base_url"])
+        llm = build_llm(provider, cfg["api_key"], model, cfg["base_url"], cfg.get("max_tokens"))
         if hasattr(llm, "timeout"):
             llm.timeout = LLM_TIMEOUT
         t0 = time.time()

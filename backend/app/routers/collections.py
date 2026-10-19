@@ -369,7 +369,7 @@ def generate_map(job_id: int, db: Session = Depends(get_db)):
     payload = json.dumps(summaries, ensure_ascii=False)
     if len(payload) > 60000:
         payload = payload[:60000]
-    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"])
+    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"], llm_cfg.get("max_tokens"))
     try:
         result = llm.chat_json(collection_map_prompt(job.title, payload))
     except Exception as exc:  # noqa: BLE001
@@ -448,7 +448,7 @@ def generate_knowledge_graph(job_id: int, db: Session = Depends(get_db)):
     llm_cfg = resolve_llm_config(db)
     if llm_cfg["provider"] != "ollama" and not llm_cfg["api_key"]:
         raise HTTPException(status_code=400, detail="尚未配置 API Key")
-    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"])
+    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"], llm_cfg.get("max_tokens"))
     try:
         result = llm.chat_json(_knowledge_graph_prompt(job.title, notes_text))
     except Exception as exc:

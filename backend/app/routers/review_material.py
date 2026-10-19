@@ -54,7 +54,7 @@ def start_review_material(req: StartRequest, db: Session = Depends(get_db)):
     db.add(mat)
     db.commit()
     db.refresh(mat)
-    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg.get("model"), llm_cfg.get("base_url"))
+    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg.get("model"), llm_cfg.get("base_url"), llm_cfg.get("max_tokens"))
     limit = max(0, int(req.chapter_limit or 0))
     import threading
     threading.Thread(target=generate_review_material, args=(mat.id, llm, detail, limit), daemon=True).start()

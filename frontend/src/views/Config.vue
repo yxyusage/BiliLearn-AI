@@ -86,7 +86,16 @@
         <div class="field">
           <label class="field-label">模型名称</label>
           <el-input v-model="models[provider]" placeholder="留空使用默认" @input="markDirty" />
-          <p class="hint">留空就用该供应商的默认模型。</p>
+          <p class="hint">留空就用该供应商的默认模型。要填**接口里的准确模型 id**（如 <code>deepseek-chat</code>），不要填显示名。</p>
+        </div>
+        <div class="field">
+          <label class="field-label">单次输出上限（max_tokens）</label>
+          <el-input-number v-model="llmMaxTokens" :min="0" :max="128000" :step="1024"
+            controls-position="right" @change="markDirty" />
+          <p class="hint">
+            0 = 按供应商默认（DeepSeek / Kimi / 通义 / OpenAI 目前是 8192）。如果换成输出上限更大的模型
+            （例如 32k），这里要一起调大，否则长视频的「汇总」这一步仍会被截断。
+          </p>
         </div>
         <div v-for="p in keyProviders" :key="p" class="field full">
           <label class="field-label">{{ pLabel(p) }}</label>
@@ -373,6 +382,8 @@ export default {
       cookieChecking: false,
       cookieResult: null,
       collectionConcurrency: 2,
+      // 单次输出上限（0 = 按供应商默认）
+      llmMaxTokens: 0,
       dictationEnabled: true,
       variantEnabled: true,
       diagnosisEnabled: true,
@@ -452,6 +463,7 @@ export default {
         this.biliCookieSet = !!cfg.bili_cookie_set
         this.biliCookieHasSessdata = !!cfg.bili_cookie_has_sessdata
         this.collectionConcurrency = Number(cfg.collection_concurrency) || 2
+      this.llmMaxTokens = Number(cfg.llm_max_tokens) || 0
         this.dictationEnabled = cfg.dictation_enabled !== false
         this.variantEnabled = cfg.variant_enabled !== false
         this.diagnosisEnabled = cfg.diagnosis_enabled !== false
@@ -537,6 +549,10 @@ export default {
         await api.post('/config/set', {
           key: 'collection_concurrency',
           value: String(Math.min(4, Math.max(1, this.collectionConcurrency || 2)))
+        })
+        await api.post('/config/set', {
+          key: 'llm_max_tokens',
+          value: String(Math.max(0, Number(this.llmMaxTokens) || 0))
         })
         ElMessage.success('设置已保存')
         await this.load()

@@ -28,6 +28,7 @@ _KEYS = (
     "hf_endpoint",
     "bili_cookie",
     "collection_concurrency",
+    "llm_max_tokens",
     "dictation_enabled",
     "variant_enabled",
     "diagnosis_enabled",
@@ -53,6 +54,8 @@ def get_config(db: Session = Depends(get_db)):
             p: values.get(p + "_model") or PROVIDERS[p]["default_model"]
             for p in PROVIDERS
         },
+        # 单次输出上限：0 = 按供应商默认（deepseek/kimi/qwen/openai 目前是 8192）
+        "llm_max_tokens": int(values.get("llm_max_tokens") or 0) if str(values.get("llm_max_tokens") or "").isdigit() else 0,
         "ollama_base_url": values.get("ollama_base_url") or PROVIDERS["ollama"]["base_url"],
         "enable_whisper": str(values.get("enable_whisper") or "").lower() in ("1", "true", "on", "yes"),
         "whisper_model": values.get("whisper_model") or "base",
@@ -105,7 +108,7 @@ def test_connection(db: Session = Depends(get_db)):
     cfg = resolve_llm_config(db)
     if cfg["provider"] != "ollama" and not cfg["api_key"]:
         raise HTTPException(status_code=400, detail="尚未配置 API Key")
-    llm = build_llm(cfg["provider"], cfg["api_key"], cfg["model"], cfg["base_url"])
+    llm = build_llm(cfg["provider"], cfg["api_key"], cfg["model"], cfg["base_url"], cfg.get("max_tokens"))
     try:
         text = llm.chat([{"role": "user", "content": "请只回复两个字：正常"}], temperature=0)
     except Exception as exc:  # noqa: BLE001

@@ -83,7 +83,7 @@ def _run_analyze(job_id: int, url: str, llm_cfg: dict, cookie: str, start_page: 
             db.commit()
 
         # 一次 AI 聚合：模块分组 + 标签
-        llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"])
+        llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"], llm_cfg.get("max_tokens"))
         ep_lines = "\n".join(
             f"P{e['page']} 《{e['title']}》 内容摘要: {e['excerpt'][:400] or '（无字幕）'}"
             for e in episodes
@@ -172,7 +172,7 @@ def gen_quiz(job_id: int, req: QuizRequest, db: Session = Depends(get_db)):
     if not job or job.status != "done":
         raise HTTPException(status_code=400, detail="线路图未生成完成")
     llm_cfg = resolve_llm_config(db)
-    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"])
+    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"], llm_cfg.get("max_tokens"))
     result = json.loads(job.result_json or "{}")
     overview = result.get("overview", "")
     modules = result.get("modules", [])
@@ -203,7 +203,7 @@ def recommend(job_id: int, req: RecommendRequest, db: Session = Depends(get_db))
     if not job or job.status != "done":
         raise HTTPException(status_code=400, detail="线路图未生成完成")
     llm_cfg = resolve_llm_config(db)
-    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"])
+    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"], llm_cfg.get("max_tokens"))
     result = json.loads(job.result_json or "{}")
     answered = {a["page"]: bool(a.get("correct")) for a in (req.answers or [])}
     sys = (

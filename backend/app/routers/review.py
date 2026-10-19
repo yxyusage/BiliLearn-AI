@@ -77,7 +77,7 @@ def analyze(req: ReviewRequest, db: Session = Depends(get_db)):
         }
         for r in wrong_rows
     ]
-    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"])
+    llm = build_llm(llm_cfg["provider"], llm_cfg["api_key"], llm_cfg["model"], llm_cfg["base_url"], llm_cfg.get("max_tokens"))
     try:
         result = analyze_review(note_json, wrong_answers, llm)
     except Exception as exc:  # noqa: BLE001

@@ -45,6 +45,21 @@ def test_vision_models():
     print("vision-models OK", VISION_MODELS)
 
 
+def test_max_tokens_override():
+    """输出上限必须能按用户设置放大。
+
+    换了输出更大的模型（如 32k）却还按供应商默认 8192 送请求，长视频的汇总照样被截断 ——
+    所以 build_llm 要支持 max_tokens 覆盖，且 llm_max_tokens 要在配置白名单里。
+    """
+    assert "llm_max_tokens" in _KEYS, "配置白名单里没有 llm_max_tokens，网页上填了也存不进去"
+    assert build_llm("deepseek", "k").max_output_tokens == 8192
+    assert build_llm("deepseek", "k", None, None, 32000).max_output_tokens == 32000
+    # 非法值忽略，回落到供应商默认
+    assert build_llm("deepseek", "k", None, None, 0).max_output_tokens == 8192
+    assert build_llm("deepseek", "k", None, None, None).max_output_tokens == 8192
+    print("max-tokens-override OK")
+
+
 def test_build_llm_openai():
     llm = build_llm("openai", "sk-test")
     assert llm.base_url == "https://api.openai.com/v1"
@@ -58,5 +73,6 @@ if __name__ == "__main__":
     test_openai_provider_registered()
     test_keys_cover_all_providers()
     test_vision_models()
+    test_max_tokens_override()
     test_build_llm_openai()
     print("ALL_PROVIDER_TESTS_PASSED")

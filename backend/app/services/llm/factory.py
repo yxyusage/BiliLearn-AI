@@ -74,6 +74,7 @@ def build_llm(
     api_key: Optional[str] = None,
     model: Optional[str] = None,
     base_url: Optional[str] = None,
+    max_tokens: Optional[int] = None,
 ) -> BaseLLM:
     if provider not in PROVIDERS:
         raise ValueError("不支持的模型供应商: " + str(provider))
@@ -86,6 +87,15 @@ def build_llm(
             api_key=api_key or "",
             model=model or info["default_model"],
         )
-    # 供 chat_json 自动带上 max_tokens：不设就等着被截断（见 base.chat_json）
-    llm.max_output_tokens = int(info.get("max_output_tokens") or 0)
+    # 供 chat_json 自动带上 max_tokens：不设就等着被截断（见 base.chat_json）。
+    # 用户可在设置里改 llm_max_tokens（0 = 按供应商默认）——
+    # 换到输出上限更大的模型（如 32k）时必须能把这个数字一起放大，否则照样被截断。
+    cap = int(info.get("max_output_tokens") or 0)
+    try:
+        user_cap = int(max_tokens or 0)
+    except (TypeError, ValueError):
+        user_cap = 0
+    if user_cap > 0:
+        cap = user_cap
+    llm.max_output_tokens = cap
     return llm

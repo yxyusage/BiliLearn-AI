@@ -41,12 +41,18 @@ def resolve_llm_config(
     provider = provider or get_setting(db, "provider") or env_settings.default_provider or "deepseek"
     if provider not in PROVIDERS:
         provider = "deepseek"
+    # 单次输出上限（0 = 按供应商默认）：换到输出更大的模型时用它放大，否则照样被截断
+    try:
+        max_tokens = int(get_setting(db, "llm_max_tokens", "0") or 0)
+    except (TypeError, ValueError):
+        max_tokens = 0
     if provider == "ollama":
         return {
             "provider": provider,
             "api_key": "",
             "model": model or get_setting(db, "ollama_model", PROVIDERS["ollama"]["default_model"]),
             "base_url": base_url or get_setting(db, "ollama_base_url", PROVIDERS["ollama"]["base_url"]),
+            "max_tokens": 0,   # Ollama 用 num_predict 控制输出，这里不注入
         }
     return {
         "provider": provider,
@@ -54,4 +60,5 @@ def resolve_llm_config(
         "model": model or get_setting(db, provider + "_model", PROVIDERS[provider]["default_model"]),
         # 允许用环境变量覆盖接口地址（如本地代理/中转），为空则用供应商默认
         "base_url": base_url or get_setting(db, provider + "_base_url", "") or PROVIDERS[provider]["base_url"],
+        "max_tokens": max_tokens,
     }
