@@ -2,6 +2,7 @@
 import os
 from typing import Optional
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -79,6 +80,48 @@ def get_config(db: Session = Depends(get_db)):
             for p, info in PROVIDERS.items()
         ],
     }
+
+
+@router.get("/models")
+def list_models(provider: str = "deepseek", db: Session = Depends(get_db)):
+    """列出该供应商当前可用的模型（优先问供应商的 /models，失败回退内置列表）。
+
+    为什么要下拉：模型名手填很容易错 ——
+      · 填成不存在的 id → 供应商直接 400/404（这个至少报错明显）；
+      · 填成存在但更弱/更贵的模型 → 质量静默下降，用户完全看不出来；
+      · 有些中转还会把未知模型静默换成默认模型。
+    """
+    info = PROVIDERS.get(provider)
+    if not info:
+        raise HTTPException(status_code=400, detail="不支持的供应商: " + str(provider))
+    builtin = [str(m) for m in (info.get("models") or [])]
+    key = get_setting(db, provider + "_api_key", "")
+    base = (get_setting(db, provider + "_base_url", "") or info["base_url"]).rstrip("/")
+    is_ollama = info["kind"] == "ollama"
+    if is_ollama:
+        url = base + ("/api/tags" if base.endswith("/api") else "/api/tags")
+        headers = {}
+    else:
+        if not key:
+            return {"provider": provider, "models": builtin, "source": "builtin",
+                    "error": "还没填 API Key，先显示内置列表"}
+        url = base + "/models"
+        headers = {"Authorization": "Bearer " + key}
+    try:
+        with httpx.Client(timeout=8) as client:
+            resp = client.get(url, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+        if is_ollama:
+            names = [m.get("name") for m in (data.get("models") or []) if isinstance(m, dict)]
+        else:
+            names = [m.get("id") for m in (data.get("data") or []) if isinstance(m, dict)]
+        names = [n for n in names if isinstance(n, str) and n.strip()]
+        merged = builtin + [n for n in sorted(set(names)) if n not in builtin]
+        return {"provider": provider, "models": merged, "source": "live", "error": ""}
+    except Exception as exc:  # noqa: BLE001  拿不到就用内置列表，不阻断用户
+        return {"provider": provider, "models": builtin, "source": "builtin",
+                "error": str(exc)[:120]}
 
 
 @router.post("/set")

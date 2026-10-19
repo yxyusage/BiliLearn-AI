@@ -74,7 +74,7 @@
       <div class="field-grid">
         <div class="field">
           <label class="field-label">默认供应商</label>
-          <el-select v-model="provider" @change="markDirty">
+          <el-select v-model="provider" @change="onProviderChange">
             <el-option
               v-for="p in providers"
               :key="p.id"
@@ -85,8 +85,25 @@
         </div>
         <div class="field">
           <label class="field-label">模型名称</label>
-          <el-input v-model="models[provider]" placeholder="留空使用默认" @input="markDirty" />
-          <p class="hint">留空就用该供应商的默认模型。要填**接口里的准确模型 id**（如 <code>deepseek-chat</code>），不要填显示名。</p>
+          <el-select
+            v-model="models[provider]"
+            filterable
+            allow-create
+            default-first-option
+            clearable
+            placeholder="选择模型，或直接输入模型 id"
+            @change="markDirty"
+          >
+            <el-option v-for="m in modelOptions" :key="m" :label="m" :value="m" />
+          </el-select>
+          <div class="inline-row" style="margin-top:6px;gap:8px">
+            <el-button size="small" text :loading="modelLoading" @click="loadModels">刷新模型列表</el-button>
+            <span class="hint" style="margin:0">{{ modelHint }}</span>
+          </div>
+          <p class="hint">
+            留空 = 用默认模型。要选**接口里的准确模型 id**（例如 <code>deepseek-chat</code>），不要填带空格的显示名
+            —— 填错会直接报 400/404，或悄悄被换成更弱的模型。
+          </p>
         </div>
         <div class="field">
           <label class="field-label">单次输出上限（max_tokens）</label>
@@ -384,6 +401,10 @@ export default {
       collectionConcurrency: 2,
       // 单次输出上限（0 = 按供应商默认）
       llmMaxTokens: 0,
+      // 模型下拉候选：优先从供应商 /models 拉取，失败用内置列表
+      modelOptions: [],
+      modelLoading: false,
+      modelHint: '',
       dictationEnabled: true,
       variantEnabled: true,
       diagnosisEnabled: true,
@@ -438,6 +459,28 @@ export default {
       this.palette = id
       setPalette(id)
     },
+    async onProviderChange() {
+      this.markDirty()
+      await this.loadModels()
+    },
+    async loadModels() {
+      // 模型名让用户手填很容易错：错的 id 直接 400/404，更糟的是被中转静默换成更弱的模型。
+      // 所以优先向供应商要真实列表（GET /models），失败才回退内置候选；仍允许手动输入。
+      this.modelLoading = true
+      try {
+        var res = await api.get('/config/models?provider=' + encodeURIComponent(this.provider))
+        this.modelOptions = res.models || []
+        if (res.source === 'live') {
+          this.modelHint = '已从供应商获取 ' + this.modelOptions.length + ' 个可用模型'
+        } else {
+          this.modelHint = '没拉到在线列表（' + (res.error || '未知原因') + '），下面是内置候选，也可以手动输入'
+        }
+      } catch (e) {
+        this.modelHint = '获取模型列表失败：' + (e.message || '未知错误')
+      } finally {
+        this.modelLoading = false
+      }
+    },
     async load() {
       try {
         var cfg = await api.get('/config')
@@ -453,6 +496,7 @@ export default {
         this.apiKeys = normalized
         this.models = cfg.models || {}
         this.origModels = JSON.parse(JSON.stringify(this.models))
+        this.loadModels()
         this.ollamaBaseUrl = cfg.ollama_base_url || ''
         this.whisperEnabled = !!cfg.enable_whisper
         this.whisperModel = cfg.whisper_model || 'base'

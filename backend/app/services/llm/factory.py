@@ -19,6 +19,8 @@ PROVIDERS: Dict[str, Dict[str, Any]] = {
         # 单次回复输出上限（DeepSeek 官方上限 8192）。不设的话默认只有 4096，
         # 长视频汇总整篇笔记 JSON 时会被截断成半截，表现为"未找到合法 JSON"。
         "max_output_tokens": 8192,
+        # 常见模型（下拉候选；真实列表优先从 /models 拉）
+        "models": ["deepseek-chat", "deepseek-reasoner"],
     },
     "kimi": {
         "name": "Kimi (Moonshot)",
@@ -29,6 +31,7 @@ PROVIDERS: Dict[str, Dict[str, Any]] = {
         "need_key": True,
         "key_url": "https://platform.moonshot.cn/console/api-keys",
         "max_output_tokens": 8192,
+        "models": ["kimi-k2.6", "kimi-k2", "moonshot-v1-32k", "moonshot-v1-128k"],
     },
     "qwen": {
         "name": "通义千问",
@@ -39,6 +42,7 @@ PROVIDERS: Dict[str, Dict[str, Any]] = {
         "need_key": True,
         "key_url": "https://bailian.console.aliyun.com/?apiKey=1",
         "max_output_tokens": 8192,
+        "models": ["qwen-plus", "qwen-max", "qwen-turbo", "qwen-long", "qwen-vl-max-latest"],
     },
     "openai": {
         "name": "OpenAI",
@@ -50,6 +54,7 @@ PROVIDERS: Dict[str, Dict[str, Any]] = {
         "need_key": True,
         "key_url": "https://platform.openai.com/api-keys",
         "max_output_tokens": 8192,
+        "models": ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1", "o4-mini"],
     },
     "ollama": {
         "name": "Ollama 本地模型",
@@ -61,6 +66,8 @@ PROVIDERS: Dict[str, Dict[str, Any]] = {
         "key_url": "https://ollama.com/download",
         # Ollama 用 num_predict 控制输出，这里不注入 max_tokens（由用户在本机模型侧调）
         "max_output_tokens": 0,
+        # 本机模型由 Ollama 自己管理，列表从它的 /api/tags 拉
+        "models": [],
     },
 }
 
