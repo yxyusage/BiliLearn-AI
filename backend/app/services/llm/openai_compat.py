@@ -99,23 +99,26 @@ class OpenAICompatLLM(BaseLLM):
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
             body = exc.response.text or ""
-            # 有的供应商 max_tokens 上限更低：这类 400 去掉该参数再试一次，
-            # 免得因为一个可选参数把整篇笔记卡死
+            # 有的模型 max_tokens 上限更低：这类 400 就把值**减半**重试，
+            # 一路降到能接受为止（4096 是各家的下限）。
+            # 这样默认值可以放大（让 deepseek-flash / v4-pro 写完整篇），
+            # 而只支持 8192 的 deepseek-chat 会自动降下来，用户无感。
             if status == 400 and "max_tokens" in body and payload.get("max_tokens"):
-                # 优先降到该供应商已知的上限；实在没有才去掉参数。
-                # （直接去掉会退回供应商默认值，对 DeepSeek 来说就是 4096，反而更容易被截断）
-                cap = int(getattr(self, "max_output_tokens", 0) or 0)
-                if cap and cap < int(payload.get("max_tokens") or 0):
-                    payload["max_tokens"] = cap
-                else:
-                    payload.pop("max_tokens", None)
-                try:
-                    retry = self._post(url, payload, headers)
-                    retry.raise_for_status()
-                    data = retry.json()
-                    return ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
-                except Exception:  # noqa: BLE001  还是失败就按原始错误抛出
-                    pass
+                value = int(payload.get("max_tokens") or 0)
+                for _ in range(3):
+                    value = max(4096, value // 2)
+                    payload["max_tokens"] = value
+                    try:
+                        retry = self._post(url, payload, headers)
+                        retry.raise_for_status()
+                        data = retry.json()
+                        return ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+                    except httpx.HTTPStatusError as exc2:
+                        if exc2.response.status_code != 400 or "max_tokens" not in (exc2.response.text or ""):
+                            raise
+                    except Exception:  # noqa: BLE001
+                        raise
+                payload.pop("max_tokens", None)
             raise LLMHTTPError(_friendly_http_error(status, body)) from exc
         except LLMError:
             raise

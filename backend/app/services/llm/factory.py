@@ -18,9 +18,11 @@ PROVIDERS: Dict[str, Dict[str, Any]] = {
         "key_url": "https://platform.deepseek.com/api_keys",
         # 单次回复输出上限（DeepSeek 官方上限 8192）。不设的话默认只有 4096，
         # 长视频汇总整篇笔记 JSON 时会被截断成半截，表现为"未找到合法 JSON"。
-        "max_output_tokens": 8192,
+        # 实测 deepseek-flash / deepseek-v4-pro 支持到 65536；deepseek-chat 只支持 8192。
+        # 默认给 32768 让新模型写完整篇，遇到只认 8192 的模型会自动减半重试（见 openai_compat）。
+        "max_output_tokens": 32768,
         # 常见模型（下拉候选；真实列表优先从 /models 拉）
-        "models": ["deepseek-chat", "deepseek-reasoner"],
+        "models": ["deepseek-chat", "deepseek-reasoner", "deepseek-flash", "deepseek-v4-pro"],
     },
     "kimi": {
         "name": "Kimi (Moonshot)",

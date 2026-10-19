@@ -20,7 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Iterator, List, Optional, Tuple
 
 from ..config import settings
-from .llm import BaseLLM
+from .llm import BaseLLM, LLMTruncatedError
 from .prompts import chunk_prompt, english_extras_prompt, reduce_prompt
 from ..utils.timestamp import normalize_hms, seconds_to_hms
 
@@ -315,8 +315,41 @@ def all_timestamps(note: dict) -> List[str]:
     return out
 
 
+# 汇总阶段的输入预算：超过这个体积就分批汇总（否则一步汇总整篇笔记必然撞输出上限）
+REDUCE_CHARS_BUDGET = 12000
+
+
+def _section_chars(section_jsons: List[dict]) -> int:
+    try:
+        return sum(len(json.dumps(sj, ensure_ascii=False)) for sj in section_jsons)
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def _mechanical_merge(section_jsons: List[dict], video_title: str = "") -> dict:
+    """兜底合并：不经过模型的"机械拼接"。
+
+    汇总那一步如果还是被截断（模型输出上限太小 / 笔记本身就要写很长），
+    与其让整篇笔记失败，不如把各段的小节直接拼起来 —— 内容是全的，只是少了
+    跨段的去重与重排。用户至少拿到了笔记。
+    """
+    chapters: List[dict] = []
+    for sj in section_jsons:
+        if not isinstance(sj, dict):
+            continue
+        if isinstance(sj.get("chapters"), list):
+            chapters.extend([c for c in sj["chapters"] if isinstance(c, dict)])
+        elif isinstance(sj.get("sections"), list):
+            chapters.append({"title": str(sj.get("title") or ""), "sections": sj["sections"]})
+    return {
+        "title": video_title or "",
+        "summary": "（本次汇总被截断，已改为按分段直接拼接：内容完整，但可能有重复、未按知识逻辑重排）",
+        "chapters": chapters,
+    }
+
+
 def generate_note(subtitles: List[dict], subject: str, llm: BaseLLM, video_title: str = "") -> dict:
-    """map-reduce：分段并发生成小节笔记，再全局汇总为最终笔记。"""
+    """map-reduce：分段并发生成小节笔记，再汇总为最终笔记。"""
     if not subtitles:
         raise ValueError("字幕为空，无法生成笔记")
     chunks = split_subtitles(subtitles)
@@ -324,7 +357,23 @@ def generate_note(subtitles: List[dict], subject: str, llm: BaseLLM, video_title
 
     def _map(idx_chunk):
         idx, chunk = idx_chunk
-        data = llm.chat_json(chunk_prompt(subject, build_transcript(chunk), idx, total))
+        try:
+            data = llm.chat_json(chunk_prompt(subject, build_transcript(chunk), idx, total))
+        except LLMTruncatedError:
+            # 单段太长被截断：把这一段再对半拆开分别写，而不是整篇失败
+            if len(chunk) > 2:
+                mid = len(chunk) // 2
+                first = _map((idx, chunk[:mid]))
+                second = _map((idx, chunk[mid:]))
+                merged = {"chapters": []}
+                for part in (first, second):
+                    chs = part.get("chapters") if isinstance(part, dict) else None
+                    if isinstance(chs, list):
+                        merged["chapters"].extend(chs)
+                    elif isinstance(part.get("sections"), list):
+                        merged["chapters"].append({"title": "", "sections": part["sections"]})
+                return merged
+            raise
         if isinstance(data, list):
             data = {"sections": data}
         if not isinstance(data, dict):
@@ -336,20 +385,26 @@ def generate_note(subtitles: List[dict], subject: str, llm: BaseLLM, video_title
             section_jsons = list(pool.map(_map, enumerate(chunks, start=1)))
     else:
         section_jsons = [_map(x) for x in enumerate(chunks, start=1)]
-    # 汇总：段数多时先分批汇总、再总汇总。
-    # 直接一次性把十几段小节汇总成整篇笔记，输出很容易超过模型上限被截断
-    # （表现就是"JSON 解析失败：未找到合法 JSON"）。
-    MERGE_GROUP = 4
-    if len(section_jsons) > MERGE_GROUP:
-        merged = []
-        for i in range(0, len(section_jsons), MERGE_GROUP):
-            part = section_jsons[i:i + MERGE_GROUP]
-            merged.append(llm.chat_json(reduce_prompt(
-                subject, json.dumps(part, ensure_ascii=False), video_title)))
-        note = llm.chat_json(reduce_prompt(
-            subject, json.dumps(merged, ensure_ascii=False), video_title))
-    else:
-        note = llm.chat_json(reduce_prompt(subject, json.dumps(section_jsons, ensure_ascii=False), video_title))
+
+    # 汇总：段数多**或体积大**时先分批汇总、再总汇总。
+    # 之前只看"段数 > 4"，于是 4 段（比如 23 分钟视频 → 4×6000 字）会走一步汇总，
+    # 整篇笔记的输出直接撞 8192 上限 —— 这次就是踩在这个边界上。
+    MERGE_GROUP = 2 if _section_chars(section_jsons) > REDUCE_CHARS_BUDGET else 4
+    try:
+        if len(section_jsons) > MERGE_GROUP:
+            merged = []
+            for i in range(0, len(section_jsons), MERGE_GROUP):
+                part = section_jsons[i:i + MERGE_GROUP]
+                merged.append(llm.chat_json(reduce_prompt(
+                    subject, json.dumps(part, ensure_ascii=False), video_title)))
+            note = llm.chat_json(reduce_prompt(
+                subject, json.dumps(merged, ensure_ascii=False), video_title))
+        else:
+            note = llm.chat_json(reduce_prompt(
+                subject, json.dumps(section_jsons, ensure_ascii=False), video_title))
+    except LLMTruncatedError:
+        # 汇总仍然装不下：退回"机械拼接"，保证用户拿到笔记而不是一个错误
+        note = _mechanical_merge(section_jsons, video_title)
     return normalize_note(note)
 
 

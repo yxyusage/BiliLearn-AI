@@ -31,6 +31,7 @@ jobs:
           python backend/tests/test_llm_json.py
           python backend/tests/test_review_plan.py
           python backend/tests/test_pycompat.py
+          python backend/tests/test_note_chunking.py
 
   frontend:
     runs-on: ubuntu-latest

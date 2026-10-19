@@ -52,11 +52,12 @@ def test_max_tokens_override():
     所以 build_llm 要支持 max_tokens 覆盖，且 llm_max_tokens 要在配置白名单里。
     """
     assert "llm_max_tokens" in _KEYS, "配置白名单里没有 llm_max_tokens，网页上填了也存不进去"
-    assert build_llm("deepseek", "k").max_output_tokens == 8192
-    assert build_llm("deepseek", "k", None, None, 32000).max_output_tokens == 32000
+    # DeepSeek 默认给 32768（flash / v4-pro 支持到 65536；chat 只支持 8192，会自动减半重试）
+    assert build_llm("deepseek", "k").max_output_tokens == 32768
+    assert build_llm("deepseek", "k", None, None, 65536).max_output_tokens == 65536
     # 非法值忽略，回落到供应商默认
-    assert build_llm("deepseek", "k", None, None, 0).max_output_tokens == 8192
-    assert build_llm("deepseek", "k", None, None, None).max_output_tokens == 8192
+    assert build_llm("deepseek", "k", None, None, 0).max_output_tokens == 32768
+    assert build_llm("deepseek", "k", None, None, None).max_output_tokens == 32768
     print("max-tokens-override OK")
 
 

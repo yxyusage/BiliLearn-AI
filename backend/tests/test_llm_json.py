@@ -126,8 +126,12 @@ def test_two_level_reduce():
 
 
 def test_400_max_tokens_clamps_to_provider_cap():
-    """写死过大的 max_tokens（如复习资料的 32000）在 DeepSeek 上会 400：
-    必须降到供应商上限重试，而不是直接去掉参数（去掉会退回 4096，更容易被截断）。"""
+    """max_tokens 超过该模型上限时会 400：必须**逐次减半**重试，直到模型接受。
+
+    为什么减半而不是降到某个固定值：默认值可以给大（让 deepseek-flash / v4-pro 写完整篇），
+    只支持 8192 的 deepseek-chat 收到 400 后自动降到 8000，用户无感；
+    若降到固定 8192，其它上限更低的模型仍会 400。
+    """
     import httpx
 
     from backend.app.services.llm.openai_compat import OpenAICompatLLM
@@ -157,7 +161,8 @@ def test_400_max_tokens_clamps_to_provider_cap():
     llm._post = fake_post
     assert llm.chat([{"role": "user", "content": "x"}], temperature=0, max_tokens=32000) == '{"ok": 1}'
     assert sent[0]["max_tokens"] == 32000
-    assert sent[1]["max_tokens"] == 8192, sent[1]
+    assert sent[1]["max_tokens"] == 16000, sent[1]          # 32000 被拒 → 减半
+    assert sent[2]["max_tokens"] == 8000, sent[2]           # 16000 还被拒（>8192）→ 再减半
     print("400-clamp OK")
 
 
