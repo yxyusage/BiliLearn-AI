@@ -4,6 +4,7 @@ import json
 import os
 import re
 import threading
+import time
 import traceback
 from pathlib import Path
 
@@ -140,6 +141,24 @@ def _is_network_error(exc: Exception) -> bool:
     return False
 
 
+def _set_note_progress(note_id: int, text: str) -> None:
+    """更新"生成中"的进度文案（借用 note.error 字段），供前端轮询显示。
+
+    转写/分段生成都可能持续很久，必须让用户看到真实进度；以前只写一句静态文案，
+    加上前端进度条封顶 35%，长视频看着就像卡死。
+    """
+    db = SessionLocal()
+    try:
+        note = db.query(Note).filter(Note.id == note_id).first()
+        if note is not None:
+            note.error = text
+            db.commit()
+    except Exception:  # noqa: BLE001
+        pass
+    finally:
+        db.close()
+
+
 def _run_generation(note_id: int, llm_cfg: dict):
     """后台线程执行：取字幕 → 分学科笔记 → 英语专项 → 落库。"""
     db = SessionLocal()
@@ -178,6 +197,26 @@ def _run_generation(note_id: int, llm_cfg: dict):
                     note.error = ("首次使用需先下载语音识别模型（" + str(model_name)
                                   + "，约 150MB），下载完成后自动开始转写…")
                 db.commit()
+                # 转写进度：逐段回调，把"已转写 X/Y 分钟（Z%）"写进 note.error，
+                # 界面轮询会显示它 —— 以前只写一句静态文案，长视频看着像卡死
+                beam = int(get_setting(db, "whisper_beam", "1") or 1)
+                state = {"last": 0.0, "last_at": 0.0}
+
+                def _on_progress(done: float, total: float) -> None:
+                    now = time.time()
+                    pct = int(100 * done / total) if total else 0
+                    # 至少每 20 秒、或每 5% 更新一次，避免频繁写库
+                    if total and done < total - 0.5 and now - state["last_at"] < 20 and pct - state["last"] < 5:
+                        return
+                    state["last"] = pct
+                    state["last_at"] = now
+                    if total:
+                        text = ("正在转写：%d/%d 分钟（%d%%）· 长视频较慢，可放着不管"
+                                % (done / 60, total / 60, pct))
+                    else:
+                        text = "正在转写：已处理 %d 分钟…" % (done / 60)
+                    _set_note_progress(note_id, text)
+
                 if is_local:
                     local_path = note.local_path or ""
                     if not local_path or not os.path.isfile(local_path):
@@ -187,6 +226,8 @@ def _run_generation(note_id: int, llm_cfg: dict):
                         model_name=model_name,
                         language=get_setting(db, "whisper_language", "") or None,
                         endpoint_mode=endpoint_mode,
+                        progress=_on_progress,
+                        beam=beam,
                     )
                 else:
                     subtitles = whisper.transcribe(
@@ -196,6 +237,8 @@ def _run_generation(note_id: int, llm_cfg: dict):
                         language=get_setting(db, "whisper_language", "") or None,
                         cookie=get_setting(db, "bili_cookie", ""),
                         endpoint_mode=endpoint_mode,
+                        progress=_on_progress,
+                        beam=beam,
                     )
                 # 转写结果同样入缓存，重复处理不再转写
                 if subtitles:

@@ -176,6 +176,41 @@ def test_model_helpers():
     print("model-helpers OK")
 
 
+def test_transcription_progress_is_plumbed():
+    """转写进度必须能从 transcribe_file 一路传到 _decode 并回调出去。
+
+    长视频（1 小时）转写要几十分钟，界面全靠这个回调显示"12/60 分钟（20%）"；
+    以前没有它，只能写一句静态文案 + 前端进度条封顶 35%，用户以为卡死了。
+    """
+    import tempfile
+
+    from backend.app.services import whisper
+
+    seen = []
+    captured = {}
+    original = whisper._decode
+
+    def fake_decode(path, model_name, language, endpoint_mode="", progress=None, beam=1):
+        captured["beam"] = beam
+        if progress:
+            progress(30.0, 60.0)
+            progress(60.0, 60.0)
+        return [{"start": 0.0, "end": 1.0, "text": "测试"}]
+
+    whisper._decode = fake_decode
+    path = tempfile.mktemp(suffix=".wav")
+    open(path, "wb").close()
+    try:
+        out = whisper.transcribe_file(path, "base", None, progress=lambda d, t: seen.append((d, t)), beam=1)
+    finally:
+        whisper._decode = original
+        os.unlink(path)
+    assert captured["beam"] == 1, captured
+    assert seen == [(30.0, 60.0), (60.0, 60.0)], seen
+    assert out and out[0]["text"] == "测试"
+    print("transcription-progress OK")
+
+
 if __name__ == "__main__":
     try:
         test_resolve_endpoints()
@@ -186,6 +221,7 @@ if __name__ == "__main__":
         test_harden_hf_env()
         test_audio_download_retries()
         test_model_helpers()
+        test_transcription_progress_is_plumbed()
     finally:
         _clear_env()
     print("ALL_WHISPER_HF_TESTS_PASSED")

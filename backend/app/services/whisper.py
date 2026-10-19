@@ -194,32 +194,50 @@ def _get_model(model_name: str, endpoint_mode: str = ""):
 
 
 def _decode(path: str, model_name: Optional[str], language: Optional[str],
-            endpoint_mode: str = "") -> List[dict]:
-    """对本地音视频文件做一次转写（PyAV 解码，不依赖系统 ffmpeg）。"""
+            endpoint_mode: str = "", progress=None, beam: int = 1) -> List[dict]:
+    """对本地音视频文件做一次转写（PyAV 解码，不依赖系统 ffmpeg）。
+
+    progress(已转写秒数, 总秒数)：逐段回调，用来给界面**真实进度**。
+    以前转写期间只写一句"耗时较长"的静态文案，加上前端进度条封顶 35%，
+    长视频（比如 1 小时）看起来就像卡死了。
+    """
     model = _get_model(model_name or "base", endpoint_mode)
     try:
-        segments, _info = model.transcribe(
+        segments, info = model.transcribe(
             path,
             language=language or None,  # None = 自动检测
-            beam_size=5,
+            # beam 5 → 1：CPU 上大约快 2-3 倍，讲课音频的识别质量差别很小。
+            # 可用设置项 whisper_beam 改回 5（更准但更慢）。
+            beam_size=max(1, int(beam or 1)),
             vad_filter=True,  # 过滤静音/片头片尾噪声
         )
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(
             "音频解码失败：该文件可能没有音轨，或编码格式不受支持（" + str(exc) + "）"
         ) from exc
-    return [
-        {"start": float(s.start), "end": float(s.end), "text": s.text.strip()}
-        for s in segments
-    ]
+    total = float(getattr(info, "duration", 0) or 0)
+    out: List[dict] = []
+    for s in segments:
+        out.append({"start": float(s.start), "end": float(s.end), "text": s.text.strip()})
+        if progress:
+            try:
+                progress(float(s.end), total)
+            except Exception:  # noqa: BLE001  进度上报失败不影响转写
+                pass
+    if progress:
+        try:
+            progress(total or 0, total or 0)
+        except Exception:  # noqa: BLE001
+            pass
+    return out
 
 
 def transcribe_file(path: str, model_name: Optional[str] = None, language: Optional[str] = None,
-                    endpoint_mode: str = "") -> List[dict]:
+                    endpoint_mode: str = "", progress=None, beam: int = 1) -> List[dict]:
     """直接转写本地视频/音频文件（mp4/mkv/flv/m4a/mp3 等，取决于 PyAV 解码支持）。"""
     if not path or not os.path.isfile(path):
         raise RuntimeError("本地文件不存在或已被移动：" + str(path))
-    return _decode(path, model_name, language, endpoint_mode)
+    return _decode(path, model_name, language, endpoint_mode, progress=progress, beam=beam)
 
 
 def _download_audio_with_retry(url: str, ydl_opts: dict, attempts: int = 3) -> None:
@@ -243,7 +261,7 @@ def _download_audio_with_retry(url: str, ydl_opts: dict, attempts: int = 3) -> N
 
 
 def transcribe(bvid: str, page: int = 1, model_name: Optional[str] = None, language: Optional[str] = None,
-               cookie: str = "", endpoint_mode: str = "") -> List[dict]:
+               cookie: str = "", endpoint_mode: str = "", progress=None, beam: int = 1) -> List[dict]:
     url = video_url(bvid, page)
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -287,4 +305,5 @@ def transcribe(bvid: str, page: int = 1, model_name: Optional[str] = None, langu
         if not files:
             raise RuntimeError("音频下载失败：未找到音频文件")
 
-        return _decode(os.path.join(tmp, files[0]), model_name, language, endpoint_mode)
+        return _decode(os.path.join(tmp, files[0]), model_name, language, endpoint_mode,
+                       progress=progress, beam=beam)

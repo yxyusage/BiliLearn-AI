@@ -5,8 +5,11 @@
       <el-result icon="info" title="AI 正在生成笔记">
         <template #sub-title>
           <p class="stage-text">{{ stageText || '正在初始化...' }}</p>
-          <p class="stage-tip">通常需要 1-5 分钟（无字幕转写会更久）。进度按实际耗时计算，切换页面/刷新后再回来也不会重置。</p>
-          <el-progress :percentage="progressPercent" />
+          <p class="stage-tip">通常需要 1-5 分钟；无字幕的视频要走本地语音转写，1 小时的视频可能要几十分钟。切换页面/刷新后再回来也不会重置。</p>
+          <el-progress v-if="!progressIndeterminate" :percentage="progressPercent" />
+          <p v-else class="stage-wait">
+            ⏳ 已用时 {{ elapsedText }} · 正在本地转写，进度按音频长度推进，可以放着不管
+          </p>
         </template>
         <template #extra>
           <el-button @click="$router.push('/history')">去历史笔记查看</el-button>
@@ -715,10 +718,25 @@ export default {
       return '/api/local/stream/' + this.noteId
     },
     progressPercent() {
+      // 后端会写"正在转写：12/60 分钟（20%）"这种真实进度，优先用它
+      var real = /（(\d+)%）/.exec(this.stageText || '')
+      if (real) return Math.max(1, Math.min(99, parseInt(real[1], 10)))
       var t = this.elapsedSeconds
-      var transcribing = this.stageText.indexOf('转写') >= 0
-      if (transcribing) return Math.min(35, 5 + Math.round(t / 2))
+      var transcribing = (this.stageText || '').indexOf('转写') >= 0
+      // 转写阶段拿不到真实百分比时**不要假装进度**（以前封顶 35% 就不动，看着像卡死）
+      if (transcribing) return 3
       return Math.min(90, 35 + Math.round(t / 3))
+    },
+    progressIndeterminate() {
+      // 转写 / 下模型这类"无法估算进度"的阶段：不画进度条，改显示已用时
+      if (/（\d+%）/.test(this.stageText || '')) return false
+      var s = this.stageText || ''
+      return s.indexOf('转写') >= 0 || s.indexOf('下载语音识别模型') >= 0
+    },
+    elapsedText() {
+      var s = this.elapsedSeconds
+      var m = Math.floor(s / 60)
+      return (m > 0 ? m + ' 分 ' : '') + (s % 60) + ' 秒'
     },
     elapsedSeconds() {
       if (this.startedAt) {
@@ -1379,6 +1397,7 @@ export default {
 <style scoped>
 .status-box { max-width: 560px; margin: 60px auto; }
 .stage-text { color: var(--c-primary); font-weight: 600; }
+.stage-wait { margin-top: 10px; font-size: 13px; color: var(--c-text-2); line-height: 1.6; }
 .stage-tip { color: var(--c-text-3); font-size: 13px; }
 
 .toolbar {
