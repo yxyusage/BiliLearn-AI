@@ -47,6 +47,7 @@ README 里那句「兼容任何 OpenAI 协议格式的第三方中转服务」�
 - 新增 `backend/tests/test_openai_compat.py`：4 个离线用例（假响应）覆盖 temperature 降级、
   参数改名、上限减半、截断识别
 - `test_providers.py` 增加 custom 注册与地址规范化断言（含「白名单漏了会白填」的回归检查）
+- `launcher/build_portable.ps1` 排除 `.workbuddy/`，避免把本地工作区文件打进发布包
 - 版本号 1.8.16 → 1.8.17
 
 ## v1.8.16 (2026-10-19) — 修「4 段就一步汇总」的边界 bug：23 分钟视频不再被截断

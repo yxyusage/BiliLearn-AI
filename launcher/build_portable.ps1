@@ -40,6 +40,8 @@ Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $stageRoot | Out-Null
 $excludeDirs = @(
     (Join-Path $root ".git"),
+    # 本地工作区：含工作记忆与协作信息（服务器、分工等），绝不能进发布包
+    (Join-Path $root ".workbuddy"),
     (Join-Path $root ".venv"),
     (Join-Path $root ".preview"),
     (Join-Path $root "frontend\node_modules"),
