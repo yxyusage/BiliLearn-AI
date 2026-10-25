@@ -25,6 +25,8 @@ import subprocess
 import sys
 from typing import Iterable, List, Optional, Tuple
 
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
 SUPPORTED_MIN = (3, 10)
 SUPPORTED_MAX = (3, 14)      # 与 backend/app/routers/diagnose.py 里的版本检查保持一致
 # 查过 PyPI：ctranslate2 4.x 与 av 12~18 都有 cp314 的 win_amd64 轮子（3.14 能装），
@@ -85,6 +87,7 @@ def probe_python(path: str, timeout: float = 10.0) -> Tuple[bool, str, str]:
         out = subprocess.run(
             [path, "-c", "import sys; print('%d.%d.%d' % sys.version_info[:3])"],
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
+            creationflags=_NO_WINDOW,
         )
     except Exception as exc:  # noqa: BLE001
         return False, "", "无法运行：" + str(exc)[:160]

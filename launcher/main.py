@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import re
 import time
 import socket
 import shutil
@@ -24,7 +25,7 @@ import pycompat  # noqa: E402  Python 版本与「依赖装不上」的判断（
 # 最近一次"找到但不可用"的 Python（供界面给出可读原因）
 LAST_PYTHON_PROBLEM = ""
 
-VERSION = "1.8.17"
+VERSION = "1.8.18"
 APP_NAME = "BiliLearn-AI"
 GITHUB_REPO = "yxyusage/BiliLearn-AI"
 DEFAULT_PORT = 8000
@@ -160,30 +161,76 @@ def get_pip_executable():
     return VENV_DIR / "bin" / "pip"
 
 
-def find_system_python():
-    """定位**确实可用**的系统 Python。
+def python_candidates():
+    """收集所有可能的系统 Python 路径（去重、保序）。
 
-    打包成 exe 后 sys.executable 指向 exe 自身而非 Python，必须从 PATH 查找。
-    注意：PATH / 注册表里可能残留已卸载的 Python 路径（用户装过 3.15 alpha 又删掉就是
-    这种情况，报错是 venv 的 "did not find executable at '...\\Python315\\python.exe'"），
-    所以每个候选都要真跑一次确认，能用才返回。
+    只试 PATH 里的 python / python3 是不够的：PATH 里可能只有一个**坏掉的入口**
+    （Microsoft Store 的占位别名、装过又卸载的残留路径），而用户真正能用的解释器
+    装在别处 —— 于是「Python 明明没问题，启动器却说启动不了」。
+    所以这里把 py -0p（Windows 官方启动器，能列出所有已安装版本）和常见安装目录也扫一遍。
+    """
+    out = []
+
+    def add(p):
+        if p and os.path.isfile(p) and p not in out:
+            out.append(p)
+
+    for name in ("python", "python3", "python3.13", "python3.12", "python3.11"):
+        add(shutil.which(name))
+    # py 启动器：py -0p 能列出所有已安装解释器的真实路径
+    try:
+        proc = subprocess.run(["py", "-0p"], capture_output=True, text=True, timeout=10,
+                              creationflags=_no_window_flag())
+        for line in (proc.stdout or "").splitlines():
+            m = re.search(r"([A-Za-z]:\\.*?python\.exe)", line, re.I)
+            if m:
+                add(m.group(1).strip())
+    except Exception:  # noqa: BLE001  没有 py 启动器很正常
+        pass
+    # 常见安装位置（新版本在前）
+    bases = [os.environ.get("LOCALAPPDATA", ""), os.environ.get("ProgramFiles", ""),
+             os.environ.get("ProgramFiles(x86)", ""), "C:\\"]
+    for ver in ("314", "313", "312", "311", "310"):
+        for base in bases:
+            if not base:
+                continue
+            if base.lower().rstrip("\\").endswith("appdata\\local"):
+                add(os.path.join(base, "Programs", "Python", "Python" + ver, "python.exe"))
+            else:
+                add(os.path.join(base, "Python" + ver, "python.exe"))
+                add(os.path.join(base, "Programs", "Python", "Python" + ver, "python.exe"))
+    return out
+
+
+def find_system_python():
+    """定位**确实可用**的系统 Python（真跑一次确认，能用才返回）。
+
+    打包成 exe 后 sys.executable 指向 exe 自身而非 Python，必须另找。
+    优先选版本号在支持区间内的解释器；全部不可用时把所有探测结果记进
+    LAST_PYTHON_PROBLEM，界面能明确告诉用户"哪个路径坏了、为什么"。
     """
     global LAST_PYTHON_PROBLEM
     if not getattr(sys, "frozen", False):
         return sys.executable
-    candidates = []
-    for name in ("python", "python3"):
-        path = shutil.which(name)
-        if path and path not in candidates:
-            candidates.append(path)
-    for path in candidates:
-        ok, _ver, err = pycompat.probe_python(path)
+    problems = []
+    usable = []
+    for path in python_candidates():
+        ok, ver, err = pycompat.probe_python(path)
         if ok:
-            LAST_PYTHON_PROBLEM = ""
-            return path
-        LAST_PYTHON_PROBLEM = path + " —— " + err
+            usable.append((path, ver))
+        else:
+            problems.append(path + " —— " + err)
+    if usable:
+        # 优先支持区间内的版本（比如同时装了 3.15 和 3.12，选 3.12）
+        for path, ver in usable:
+            level, _msg = pycompat.check_version(pycompat.parse_version(ver))
+            if level == "ok":
+                LAST_PYTHON_PROBLEM = ""
+                return path
+        LAST_PYTHON_PROBLEM = ""
+        return usable[0][0]
+    LAST_PYTHON_PROBLEM = ("；".join(problems[:3]) if problems else "")
     return ""
-
 
 def _no_window_flag():
     return subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -595,7 +642,8 @@ class ServiceManager:
             self.process = subprocess.Popen(
                 cmd, cwd=str(BACKEND_DIR), env=env,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, bufsize=1, encoding="utf-8", errors="replace"
+                text=True, bufsize=1, encoding="utf-8", errors="replace",
+                creationflags=_no_window_flag(),
             )
             self.starting = False
             threading.Thread(target=self._read_output, daemon=True).start()

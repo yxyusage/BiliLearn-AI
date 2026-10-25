@@ -28,6 +28,8 @@ import urllib.error
 import urllib.request
 from typing import Callable, List, Optional, Tuple
 
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
 # 常用 PyPI 镜像（含官方源兜底）。顺序无所谓，最终按实测速度排序。
 DEFAULT_MIRRORS: List[Tuple[str, str]] = [
     ("阿里云", "https://mirrors.aliyun.com/pypi/simple/"),
@@ -154,7 +156,8 @@ def resolve_wheels(python_exe: str, requirements: str, index_url: str,
         "-i", index_url, "-r", requirements,
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300,
-                          encoding="utf-8", errors="replace", env=pip_env())
+                          encoding="utf-8", errors="replace", env=pip_env(),
+                          creationflags=_NO_WINDOW)
     if proc.returncode != 0:
         raise RuntimeError("解析依赖失败：" + (proc.stderr or proc.stdout or "")[-300:])
     urls = parse_report(proc.stdout)
@@ -285,7 +288,7 @@ def install_from_dir(python_exe: str, requirements: str, wheel_dir: str,
     ]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             text=True, bufsize=1, encoding="utf-8", errors="replace",
-                            env=pip_env())
+                            env=pip_env(), creationflags=_NO_WINDOW)
     assert proc.stdout is not None
     for line in proc.stdout:
         line = line.rstrip()

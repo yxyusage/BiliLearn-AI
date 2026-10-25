@@ -15,16 +15,23 @@ if not exist "%PY%" set "PY=python"
 
 echo [1/4] 检查打包环境...
 "%PY%" -c "import tkinter" 2>nul
-if errorlevel 1 (
-    echo.
-    echo [错误] 当前 Python 没有 tkinter，打出来的启动器会闪退。
-    echo        请改用项目自带的 ..\.venv，或安装 python.org 的完整版 Python。
-    echo        当前解释器：
-    "%PY%" -c "import sys; print('       ' + sys.executable)"
-    echo.
-    pause
-    exit /b 1
-)
+if not errorlevel 1 goto :python_ok
+
+rem .venv 可能本身缺 tkinter：再试一次系统 Python
+if /I "%PY%"=="python" goto :python_missing_tkinter
+set "PY=python"
+"%PY%" -c "import tkinter" 2>nul
+if not errorlevel 1 goto :python_ok
+
+:python_missing_tkinter
+echo.
+echo [错误] 没有找到带 tkinter 的 Python，打出来的启动器会闪退。
+echo        请用项目自带的 ..\.venv，或安装 python.org 的完整版 Python。
+echo.
+pause
+exit /b 1
+
+:python_ok
 "%PY%" -c "import sys; print('      使用解释器: ' + sys.executable)"
 
 echo.
