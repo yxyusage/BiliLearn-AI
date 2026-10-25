@@ -1,4 +1,4 @@
-# 打包 Windows 便携版：BiliLearn-AI-v<版本>-portable.zip
+﻿# 打包 Windows 便携版：BiliLearn-AI-v<版本>-portable.zip
 # 用法（在项目根目录）：powershell -ExecutionPolicy Bypass -File launcher\build_portable.ps1
 #
 # 便携版 = 源码 + 已构建的 frontend/dist + 根目录的 BiliLearn-AI-Launcher.exe
@@ -40,7 +40,6 @@ Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $stageRoot | Out-Null
 $excludeDirs = @(
     (Join-Path $root ".git"),
-    # 本地工作区：含工作记忆与协作信息（服务器、分工等），绝不能进发布包
     (Join-Path $root ".workbuddy"),
     (Join-Path $root ".venv"),
     (Join-Path $root ".preview"),
@@ -49,15 +48,14 @@ $excludeDirs = @(
     (Join-Path $root "launcher\build"),
     (Join-Path $root "launcher\dist"),
     (Join-Path $root "问题汇总"),
-    # 内部资料不进发布包
     (Join-Path $root "BiliLearn-AI-SaaS-v1.0-完整设计文档")
 )
 $excludeFiles = @(
     (Join-Path $root "friend_error.png"),
     (Join-Path $root "start.bat - 快捷方式.lnk"),
-    (Join-Path $root "BiliLearn-AI-Launcher.exe"),
     (Join-Path $root "launcher_config.json"),
     (Join-Path $root "前后端接口对齐清单-v1.md"),
+    (Join-Path $root "BiliLearn-AI-Launcher.exe"),
     (Join-Path $root ".env"),
     (Join-Path $root "backend\.env")
 )
@@ -74,7 +72,6 @@ Write-Host "[4/4] 清理暂存目录 ..."
 Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
 
 $info = Get-Item $zipPath
-$files = (Get-ChildItem $zipPath).Count
 Write-Host ""
 Write-Host ("完成 : " + $zipPath)
 Write-Host ("大小 : " + ("{0:N1} MB" -f ($info.Length / 1MB)))
