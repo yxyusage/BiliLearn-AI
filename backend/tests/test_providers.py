@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from backend.app.routers.config import _KEYS, _KEY_PROVIDERS
 from backend.app.services.llm import PROVIDERS, build_llm
-from backend.app.services.llm.factory import VISION_MODELS
+from backend.app.services.llm.factory import VISION_MODELS, normalize_base_url
 
 
 def test_openai_provider_registered():
@@ -70,10 +70,54 @@ def test_build_llm_openai():
     print("build-llm-openai OK")
 
 
+def test_custom_provider():
+    """自定义 OpenAI 兼容接口（硅基流动 / 商汤 / OpenRouter / one-api）。
+
+    这类接入最高频的坑是 base_url 写法：少写 /v1、多写 /chat/completions、
+    把控制台地址当接口地址。normalize_base_url 必须把这几种都收敛掉，
+    否则用户会在生成笔记时才看到 404，却不知道是地址填错了。
+    """
+    assert "custom" in PROVIDERS, list(PROVIDERS)
+    info = PROVIDERS["custom"]
+    assert info["requires_base_url"] is True
+    assert info["kind"] == "openai"
+    # 地址必须能通过 /config/set 写进去，否则前端填了也白填
+    assert "custom_base_url" in _KEYS, "custom_base_url 不在配置白名单里"
+    assert "custom_vision_model" in _KEYS, "custom_vision_model 不在配置白名单里"
+
+    assert normalize_base_url("https://api.siliconflow.cn") == "https://api.siliconflow.cn/v1"
+    assert normalize_base_url("https://api.siliconflow.cn/v1/") == "https://api.siliconflow.cn/v1"
+    assert (
+        normalize_base_url("https://api.sensenova.cn/compatible-mode/v1")
+        == "https://api.sensenova.cn/compatible-mode/v1"
+    )
+    assert normalize_base_url("https://token.sensenova.cn/v1") == "https://token.sensenova.cn/v1"
+    assert normalize_base_url("https://x.com/v1/chat/completions") == "https://x.com/v1"
+    assert normalize_base_url("  ") == ""
+
+    llm = build_llm("custom", "sk-x", "deepseek-ai/DeepSeek-V3", "https://api.siliconflow.cn")
+    assert llm.base_url == "https://api.siliconflow.cn/v1"
+    assert llm.model == "deepseek-ai/DeepSeek-V3"
+
+    # 缺地址 / 缺模型时报人话，而不是拼出一个能发出请求的坏 URL
+    for kwargs, keyword in (
+        ({"model": "m", "base_url": ""}, "接口地址"),
+        ({"model": "", "base_url": "https://api.siliconflow.cn/v1"}, "模型名称"),
+    ):
+        try:
+            build_llm("custom", "sk-x", **kwargs)
+        except ValueError as exc:
+            assert keyword in str(exc), str(exc)
+        else:
+            raise AssertionError("缺参数时应该直接报错：" + str(kwargs))
+    print("custom-provider OK")
+
+
 if __name__ == "__main__":
     test_openai_provider_registered()
     test_keys_cover_all_providers()
     test_vision_models()
     test_max_tokens_override()
     test_build_llm_openai()
+    test_custom_provider()
     print("ALL_PROVIDER_TESTS_PASSED")

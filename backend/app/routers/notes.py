@@ -514,6 +514,16 @@ def generate_formulas(note_id: int, req: FormulaRequest, db: Session = Depends(g
 
     provider = req.provider or "deepseek"
     model = req.model or VISION_MODELS.get(provider, "")
+    if not model and provider == "custom":
+        # 自定义供应商没法预置视觉模型：用户接的可能是纯文本模型，
+        # 也可能接的是 qwen-vl / glm-4v 这类多模态模型，只能让他自己指定
+        model = get_setting(db, "custom_vision_model", "")
+        if not model:
+            raise HTTPException(
+                status_code=400,
+                detail="当前用的是「自定义」供应商，请在设置里填写「视觉模型名称」后再提取公式"
+                       "（例如硅基流动的 Qwen/Qwen2.5-VL-72B-Instruct；纯文本模型不支持图片输入）",
+            )
     if not model:
         raise HTTPException(
             status_code=400,

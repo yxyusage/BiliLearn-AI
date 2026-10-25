@@ -270,8 +270,17 @@ BiliLearn-AI/
 | 通义千问 | 阿里云百炼 | qwen-plus | 视觉用 qwen-vl-max |
 | OpenAI | platform.openai.com | gpt-4o-mini | 视觉用 gpt-4o，模型质量稳定 |
 | Ollama | 本地运行，无需 Key | qwen2.5:7b | 完全离线 |
+| **自定义（OpenAI 兼容）** | 各平台控制台 | 自填 | 硅基流动 / 商汤 / OpenRouter / 自建 one-api 等 |
 
-接口地址与模型名均可在设置中覆盖，因此也兼容任何 OpenAI 协议格式的第三方中转服务。
+**接任何 OpenAI 兼容平台**：设置 → 大模型供应商 → 选「自定义（OpenAI 兼容）」，填三样东西即可：
+
+1. **接口地址**：填到 `/v1` 为止，不要带 `/chat/completions`（只填域名会自动补 `/v1`）
+2. **API Key**
+3. **模型名称**：必须是接口里的准确 id —— 硅基流动要带组织名前缀（`deepseek-ai/DeepSeek-V3`），商汤是 `SenseChat-5`
+
+界面里有硅基流动、商汤（新旧两个入口）、OpenRouter、自建 one-api 的地址预设，点一下自动填入。填完先点「测试连接」再保存；「测试并拉取模型」会调该平台的 `/models` 直接列出可用模型。
+
+公式板书识别需要图片输入能力，在「视觉模型名称」里单独填一个多模态模型（如 `Qwen/Qwen2.5-VL-72B-Instruct`）；纯文本模型留空即可，不影响笔记、答疑和自测。
 
 ---
 

@@ -82,48 +82,73 @@ class OpenAICompatLLM(BaseLLM):
         payload = {"model": self.model, "messages": messages, "temperature": temperature}
         payload.update(kwargs)
         try:
-            resp = self._post(url, payload, headers)
-            resp.raise_for_status()
-            data = resp.json()
-            choice = (data.get("choices") or [{}])[0]
-            content = ((choice.get("message") or {}).get("content") or "")
-            # finish_reason=length 说明输出被 max_tokens 掐断：JSON 必然不完整，
-            # 与其让上层报"未找到合法 JSON"，不如直接说清是输出太长
-            if choice.get("finish_reason") == "length":
-                cap = payload.get("max_tokens")
-                raise LLMTruncatedError(
-                    "模型输出被截断" + ("（达到输出上限 max_tokens=%s）" % cap if cap else "") +
-                    "：内容太长，请缩短视频或换输出上限更大的模型"
-                )
-            return content
+            return self._parse(self._post(url, payload, headers), payload)
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
             body = exc.response.text or ""
-            # 有的模型 max_tokens 上限更低：这类 400 就把值**减半**重试，
-            # 一路降到能接受为止（4096 是各家的下限）。
-            # 这样默认值可以放大（让 deepseek-flash / v4-pro 写完整篇），
-            # 而只支持 8192 的 deepseek-chat 会自动降下来，用户无感。
-            if status == 400 and "max_tokens" in body and payload.get("max_tokens"):
-                value = int(payload.get("max_tokens") or 0)
-                for _ in range(3):
-                    value = max(4096, value // 2)
-                    payload["max_tokens"] = value
+
+            # ------------------------------------------------------------------
+            # 兼容层：各家「OpenAI 兼容」的差异集中在这里兜住，否则接一个新平台
+            # 就是一次「参数错误 400」，用户完全不知道是哪里不兼容。
+            # ------------------------------------------------------------------
+            if status == 400:
+                # ① 推理类模型（o1/o3/deepseek-reasoner 等）不接受 temperature
+                if "temperature" in body.lower() and "temperature" in payload:
+                    payload.pop("temperature", None)
                     try:
-                        retry = self._post(url, payload, headers)
-                        retry.raise_for_status()
-                        data = retry.json()
-                        return ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+                        return self._parse(self._post(url, payload, headers), payload)
                     except httpx.HTTPStatusError as exc2:
-                        if exc2.response.status_code != 400 or "max_tokens" not in (exc2.response.text or ""):
+                        status, body = exc2.response.status_code, exc2.response.text or ""
+
+                # ② OpenAI 新版模型把 max_tokens 改名成 max_completion_tokens
+                if status == 400 and "max_completion_tokens" in body and "max_tokens" in payload:
+                    payload["max_completion_tokens"] = payload.pop("max_tokens")
+                    try:
+                        return self._parse(self._post(url, payload, headers), payload)
+                    except httpx.HTTPStatusError as exc3:
+                        status, body = exc3.response.status_code, exc3.response.text or ""
+
+                # ③ 该模型支持的上限更低：把值减半重试，一路降到能接受为止
+                #    （4096 是各家的常见下限，所以默认值可以给大，由这里自动降）
+                cap_key = "max_tokens" if "max_tokens" in payload else (
+                    "max_completion_tokens" if "max_completion_tokens" in payload else ""
+                )
+                if status == 400 and cap_key and "max_tokens" in body:
+                    value = int(payload.get(cap_key) or 0)
+                    for _ in range(3):
+                        value = max(4096, value // 2)
+                        payload[cap_key] = value
+                        try:
+                            return self._parse(self._post(url, payload, headers), payload)
+                        except httpx.HTTPStatusError as exc2:
+                            if exc2.response.status_code != 400 or "max_tokens" not in (exc2.response.text or ""):
+                                raise
+                            status, body = 400, exc2.response.text or ""
+                        except Exception:  # noqa: BLE001
                             raise
-                    except Exception:  # noqa: BLE001
-                        raise
-                payload.pop("max_tokens", None)
+                    payload.pop(cap_key, None)
+
             raise LLMHTTPError(_friendly_http_error(status, body)) from exc
         except LLMError:
             raise
         except Exception as exc:  # noqa: BLE001
             raise LLMError("调用模型失败: " + str(exc)) from exc
+
+    def _parse(self, resp, payload: dict) -> str:
+        """解析一次性返回，并识别「输出被截断」。"""
+        resp.raise_for_status()
+        data = resp.json()
+        choice = (data.get("choices") or [{}])[0]
+        content = ((choice.get("message") or {}).get("content") or "")
+        # finish_reason=length 说明输出被上限掐断：JSON 必然不完整，
+        # 与其让上层报"未找到合法 JSON"，不如直接说清是输出太长
+        if choice.get("finish_reason") == "length":
+            cap = payload.get("max_tokens") or payload.get("max_completion_tokens")
+            raise LLMTruncatedError(
+                "模型输出被截断" + ("（达到输出上限 %s）" % cap if cap else "") +
+                "：内容太长，请缩短视频或换输出上限更大的模型"
+            )
+        return content
 
     def _post(self, url: str, payload: dict, headers: dict):
         """先按系统代理请求，代理不可用时自动回退直连。"""

@@ -1,5 +1,54 @@
 # 更新日志
 
+## v1.8.17 (2026-10-25) — 可以接任意 OpenAI 兼容平台（硅基流动 / 商汤 / OpenRouter）
+
+### 需求（用户反馈）
+「填一个 OpenAI 兼容的地址 + Key 就能用它家的模型」——比如商汤、硅基流动。
+
+### 之前为什么不行
+后端其实一直在读 `<供应商>_base_url`（`resolve_llm_config` 里有这一行），但三处卡死了：
+
+1. `/config/set` 的白名单 `_KEYS` 里只加了 `ollama_base_url`，其余 `*_base_url` 一律返回
+   「不支持的配置项」——**前端填了也存不进去**；
+2. 设置页根本没有地址输入框，只有 provider 下拉；
+3. provider 是硬编码枚举，没有「自定义」这一项。
+
+README 里那句「兼容任何 OpenAI 协议格式的第三方中转服务」在 v1.8.16 之前是**不成立的**。
+
+### 新增
+- 供应商列表加 **`custom`（自定义 OpenAI 兼容）**，可填：接口地址 / API Key / 模型名 / 视觉模型
+- 地址预设一键填入：硅基流动、商汤（新版 `token.sensenova.cn` 与旧版 `compatible-mode` 两个入口）、
+  OpenRouter、自建 one-api / new-api
+- 「测试并拉取模型」直接调该平台的 `GET /models` 列出可用模型（拉不到仍可手填）
+- 「测试连接」支持**尚未保存**的配置：改完地址/Key 可以先试再存，不必先存成一份错的
+
+### 地址写错的三种情况都兜住了（`normalize_base_url`）
+| 用户填的 | 实际使用 |
+| --- | --- |
+| `https://api.siliconflow.cn` | 自动补 `/v1` |
+| `https://api.siliconflow.cn/v1/` | 去掉尾斜杠 |
+| `https://api.siliconflow.cn/v1/chat/completions` | 切掉多余路径 |
+| `https://api.sensenova.cn/compatible-mode/v1` | 原样保留（不能盲目补 `/v1`） |
+
+### 兼容层：不同「OpenAI 兼容」平台的参数差异
+以前任何一种差异都会变成一句「模型接口参数错误（400）」，用户根本不知道是自己配错了还是平台不支持：
+
+- **推理类模型不接受 `temperature`**（o1 / deepseek-reasoner 等）→ 自动去掉该参数重试
+- **新版模型只认 `max_completion_tokens`** → 自动改名重试
+- **该模型 `max_tokens` 上限更低** → 减半重试（原逻辑，改为同时支持两种参数名）
+
+### 顺带修的
+- 公式板书识别：用自定义供应商时可在设置里指定视觉模型；笔记页的视觉供应商下拉
+  新增「自定义」并**默认跟随当前默认供应商**（此前固定选 DeepSeek，接自定义的人一点就报
+  「尚未配置 DeepSeek 的 API Key」，与他自己的配置完全无关）
+- 切到「自定义」但没填地址时直接拒绝保存，避免存下一份必然报错的配置
+
+### 工程
+- 新增 `backend/tests/test_openai_compat.py`：4 个离线用例（假响应）覆盖 temperature 降级、
+  参数改名、上限减半、截断识别
+- `test_providers.py` 增加 custom 注册与地址规范化断言（含「白名单漏了会白填」的回归检查）
+- 版本号 1.8.16 → 1.8.17
+
 ## v1.8.16 (2026-10-19) — 修「4 段就一步汇总」的边界 bug：23 分钟视频不再被截断
 
 ### 问题（真实故障 #261）

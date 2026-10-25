@@ -9,12 +9,13 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..schemas import SettingBody
 from ..services import bilibili
-from ..services.llm import PROVIDERS, build_llm
+from ..services.llm import COMPAT_PRESETS, PROVIDERS, build_llm
+from ..services.llm.factory import normalize_base_url
 from ..services.settings_store import get_setting, resolve_llm_config, set_setting
 
 router = APIRouter()
 
-# 需要填 Key 的供应商（deepseek / kimi / qwen / openai…）
+# 需要填 Key 的供应商（deepseek / kimi / qwen / openai / custom…）
 # 这里按 PROVIDERS 动态生成，避免以后再加供应商时漏改白名单
 _KEY_PROVIDERS = tuple(p for p, info in PROVIDERS.items() if info.get("need_key"))
 
@@ -23,6 +24,10 @@ _KEYS = (
     *[p + "_api_key" for p in _KEY_PROVIDERS],
     *[p + "_model" for p in PROVIDERS],
     "ollama_base_url",
+    # 自定义 OpenAI 兼容接口：地址必须能写进来（此前只有 ollama_base_url 在白名单里，
+    # 导致 deepseek_base_url 这类覆盖只能靠环境变量，前端根本改不了）
+    "custom_base_url",
+    "custom_vision_model",
     "enable_whisper",
     "whisper_model",
     "whisper_language",
@@ -58,6 +63,10 @@ def get_config(db: Session = Depends(get_db)):
         # 单次输出上限：0 = 按供应商默认（deepseek/kimi/qwen/openai 目前是 8192）
         "llm_max_tokens": int(values.get("llm_max_tokens") or 0) if str(values.get("llm_max_tokens") or "").isdigit() else 0,
         "ollama_base_url": values.get("ollama_base_url") or PROVIDERS["ollama"]["base_url"],
+        # 自定义 OpenAI 兼容接口
+        "custom_base_url": values.get("custom_base_url") or "",
+        "custom_vision_model": values.get("custom_vision_model") or "",
+        "compat_presets": COMPAT_PRESETS,
         "enable_whisper": str(values.get("enable_whisper") or "").lower() in ("1", "true", "on", "yes"),
         "whisper_model": values.get("whisper_model") or "base",
         "whisper_language": values.get("whisper_language") or "",
@@ -76,6 +85,7 @@ def get_config(db: Session = Depends(get_db)):
                 "need_key": info["need_key"],
                 "default_model": info["default_model"],
                 "key_url": info.get("key_url", ""),
+                "requires_base_url": bool(info.get("requires_base_url")),
             }
             for p, info in PROVIDERS.items()
         ],
@@ -83,20 +93,26 @@ def get_config(db: Session = Depends(get_db)):
 
 
 @router.get("/models")
-def list_models(provider: str = "deepseek", db: Session = Depends(get_db)):
+def list_models(provider: str = "deepseek", base_url: str = "", db: Session = Depends(get_db)):
     """列出该供应商当前可用的模型（优先问供应商的 /models，失败回退内置列表）。
 
     为什么要下拉：模型名手填很容易错 ——
       · 填成不存在的 id → 供应商直接 400/404（这个至少报错明显）；
       · 填成存在但更弱/更贵的模型 → 质量静默下降，用户完全看不出来；
       · 有些中转还会把未知模型静默换成默认模型。
+
+    base_url 参数用于「用户刚填完地址、还没保存就点刷新」的场景。
     """
     info = PROVIDERS.get(provider)
     if not info:
         raise HTTPException(status_code=400, detail="不支持的供应商: " + str(provider))
     builtin = [str(m) for m in (info.get("models") or [])]
     key = get_setting(db, provider + "_api_key", "")
-    base = (get_setting(db, provider + "_base_url", "") or info["base_url"]).rstrip("/")
+    raw_base = (base_url or "").strip() or get_setting(db, provider + "_base_url", "") or info["base_url"]
+    base = normalize_base_url(raw_base)
+    if provider == "custom" and not base:
+        return {"provider": provider, "models": [], "source": "builtin",
+                "error": "还没填接口地址，填完再点刷新就能拉到该平台的模型"}
     is_ollama = info["kind"] == "ollama"
     if is_ollama:
         url = base + ("/api/tags" if base.endswith("/api") else "/api/tags")
@@ -128,7 +144,15 @@ def list_models(provider: str = "deepseek", db: Session = Depends(get_db)):
 def set_config(body: SettingBody, db: Session = Depends(get_db)):
     if body.key not in _KEYS:
         return {"ok": False, "message": "不支持的配置项"}
-    set_setting(db, body.key, body.value)
+    value = body.value
+    if body.key.endswith("_base_url"):
+        value = (value or "").strip()
+    # 切到「自定义」供应商时先校验地址：否则会存下一份必然 400 的配置，
+    # 用户在下一次生成笔记时才看到报错，很难定位到是这里没填
+    if body.key == "provider" and value == "custom":
+        if not get_setting(db, "custom_base_url", ""):
+            return {"ok": False, "message": "请先填写并保存「接口地址」，再切换到自定义供应商"}
+    set_setting(db, body.key, value)
     if body.key == "bili_cookie" and not (body.value or "").strip():
         # 清空 Cookie 时顺手删掉给 yt-dlp 用的 cookie 文件，别留登录凭证在磁盘上
         bilibili.clear_cookie_file()
@@ -147,13 +171,34 @@ def verify_cookie(body: Optional[dict] = None, db: Session = Depends(get_db)):
 
 
 @router.post("/test")
-def test_connection(db: Session = Depends(get_db)):
-    cfg = resolve_llm_config(db)
+def test_connection(body: Optional[dict] = None, db: Session = Depends(get_db)):
+    """测试连接。
+
+    支持传入还没保存的配置（provider / api_key / model / base_url）：
+    用户改了地址或模型后想先试一下再保存，否则得先存成一份错的配置才能测。
+    """
+    body = body if isinstance(body, dict) else {}
+    cfg = resolve_llm_config(
+        db,
+        provider=(body.get("provider") or None),
+        api_key=(body.get("api_key") or None),
+        model=(body.get("model") or None),
+        base_url=(body.get("base_url") or None),
+    )
     if cfg["provider"] != "ollama" and not cfg["api_key"]:
         raise HTTPException(status_code=400, detail="尚未配置 API Key")
-    llm = build_llm(cfg["provider"], cfg["api_key"], cfg["model"], cfg["base_url"], cfg.get("max_tokens"))
+    try:
+        llm = build_llm(cfg["provider"], cfg["api_key"], cfg["model"], cfg["base_url"], cfg.get("max_tokens"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
         text = llm.chat([{"role": "user", "content": "请只回复两个字：正常"}], temperature=0)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail="连接失败：" + str(exc)) from exc
-    return {"ok": True, "reply": text[:50], "provider": cfg["provider"], "model": cfg["model"]}
+    return {
+        "ok": True,
+        "reply": text[:50],
+        "provider": cfg["provider"],
+        "model": cfg["model"],
+        "base_url": cfg["base_url"],
+    }

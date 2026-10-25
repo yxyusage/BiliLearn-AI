@@ -114,6 +114,52 @@
             （例如 32k），这里要一起调大，否则长视频的「汇总」这一步仍会被截断。
           </p>
         </div>
+
+        <!-- 自定义 OpenAI 兼容接口：硅基流动 / 商汤 / OpenRouter / 自建 one-api -->
+        <div v-if="provider === 'custom'" class="field full custom-block">
+          <label class="field-label">接口地址（Base URL）</label>
+          <el-input
+            v-model="customBaseUrl"
+            placeholder="https://api.siliconflow.cn/v1"
+            @input="markDirty"
+          >
+            <template #append>
+              <el-button :loading="modelLoading" @click="loadModels">拉取模型列表</el-button>
+            </template>
+          </el-input>
+          <div class="preset-row">
+            <span class="preset-label">快速填入：</span>
+            <button
+              v-for="p in presets"
+              :key="p.id"
+              type="button"
+              class="preset-chip"
+              :class="{ active: customBaseUrl === p.base_url }"
+              :title="p.note"
+              @click="applyPreset(p)"
+            >
+              {{ p.name }}
+            </button>
+          </div>
+          <p class="hint">
+            填到 <code>/v1</code> 为止，<b>不要</b>带 <code>/chat/completions</code>；只填域名（如
+            <code>https://api.siliconflow.cn</code>）会自动补 <code>/v1</code>。
+            商汤旧版要带 <code>/compatible-mode</code>，别只填 <code>api.sensenova.cn</code>。
+          </p>
+        </div>
+
+        <div v-if="provider === 'custom'" class="field full">
+          <label class="field-label">视觉模型名称（可选）</label>
+          <el-input
+            v-model="customVisionModel"
+            placeholder="例如 Qwen/Qwen2.5-VL-72B-Instruct（留空 = 不启用板书/公式识别）"
+            @input="markDirty"
+          />
+          <p class="hint">
+            只有「提取板书公式」这一项需要图片输入能力。接的是纯文本模型就留空，
+            不影响生成笔记、答疑和自测。
+          </p>
+        </div>
         <div v-for="p in keyProviders" :key="p" class="field full">
           <label class="field-label">{{ pLabel(p) }}</label>
           <div class="inline-row">
@@ -144,6 +190,11 @@
             <li><b>Kimi（Moonshot）</b>：platform.kimi.com，默认 <code>kimi-k2.6</code>，支持视觉与 256k 长上下文。</li>
             <li><b>通义千问</b>：阿里云百炼 DashScope（兼容模式），视觉用 <code>qwen-vl-max</code>。</li>
             <li><b>Ollama</b>：本地模型，无需 Key。先安装 Ollama 并运行 <code>ollama serve</code>，再 <code>ollama pull qwen2.5:7b</code>。</li>
+            <li>
+              <b>自定义（OpenAI 兼容）</b>：适用于硅基流动、商汤 SenseNova、OpenRouter、自建 one-api / new-api 等。
+              地址填到 <code>/v1</code> 为止，模型名要填接口里的<b>完整 id</b>（硅基流动要带组织名前缀，如
+              <code>deepseek-ai/DeepSeek-V3</code>）。填完先点「测试连接」，通过再保存。
+            </li>
             <li><b>长视频</b>建议用大上下文窗口模型（如 Kimi <code>kimi-k2.6</code>）。</li>
           </ul>
         </el-collapse-item>
@@ -383,11 +434,15 @@ export default {
       provider: 'deepseek',
       providers: [],
       apiKeys: {},
-      keys: { deepseek: '', kimi: '', qwen: '', openai: '' },
-      models: { deepseek: '', kimi: '', qwen: '', openai: '', ollama: '' },
+      keys: { deepseek: '', kimi: '', qwen: '', openai: '', custom: '' },
+      models: { deepseek: '', kimi: '', qwen: '', openai: '', ollama: '', custom: '' },
       origModels: {},
       savedKeys: {},
       ollamaBaseUrl: '',
+      // 自定义 OpenAI 兼容接口（硅基流动 / 商汤 / OpenRouter / one-api）
+      customBaseUrl: '',
+      customVisionModel: '',
+      presets: [],
       whisperEnabled: false,
       whisperModel: 'base',
       whisperLanguage: '',
@@ -448,6 +503,7 @@ export default {
       this.dirty = true
     },
     pLabel(id) {
+      if (id === 'custom') return '自定义平台 API Key'
       var found = this.providers.find(function (p) { return p.id === id })
       return (found ? found.name : id) + ' API Key'
     },
@@ -466,20 +522,35 @@ export default {
     async loadModels() {
       // 模型名让用户手填很容易错：错的 id 直接 400/404，更糟的是被中转静默换成更弱的模型。
       // 所以优先向供应商要真实列表（GET /models），失败才回退内置候选；仍允许手动输入。
+      if (this.provider === 'custom' && !(this.customBaseUrl || '').trim()) {
+        this.modelOptions = []
+        this.modelHint = '先填上面的接口地址，再点「测试并拉取模型」'
+        return
+      }
       this.modelLoading = true
       try {
-        var res = await api.get('/config/models?provider=' + encodeURIComponent(this.provider))
+        var url = '/config/models?provider=' + encodeURIComponent(this.provider)
+        // 用输入框里的地址（可能是刚改完还没保存的），否则用户得先存一份错的才能测
+        if (this.provider === 'custom' && this.customBaseUrl) {
+          url += '&base_url=' + encodeURIComponent(this.customBaseUrl.trim())
+        }
+        var res = await api.get(url)
         this.modelOptions = res.models || []
         if (res.source === 'live') {
           this.modelHint = '已从供应商获取 ' + this.modelOptions.length + ' 个可用模型'
         } else {
-          this.modelHint = '没拉到在线列表（' + (res.error || '未知原因') + '），下面是内置候选，也可以手动输入'
+          this.modelHint = '没拉到在线列表（' + (res.error || '未知原因') + '），可以手动输入模型 id'
         }
       } catch (e) {
         this.modelHint = '获取模型列表失败：' + (e.message || '未知错误')
       } finally {
         this.modelLoading = false
       }
+    },
+    applyPreset(p) {
+      this.customBaseUrl = p.base_url
+      this.markDirty()
+      this.loadModels()
     },
     async load() {
       try {
@@ -498,6 +569,9 @@ export default {
         this.origModels = JSON.parse(JSON.stringify(this.models))
         this.loadModels()
         this.ollamaBaseUrl = cfg.ollama_base_url || ''
+        this.customBaseUrl = cfg.custom_base_url || ''
+        this.customVisionModel = cfg.custom_vision_model || ''
+        this.presets = cfg.compat_presets || []
         this.whisperEnabled = !!cfg.enable_whisper
         this.whisperModel = cfg.whisper_model || 'base'
         this.whisperLanguage = cfg.whisper_language || ''
@@ -557,9 +631,21 @@ export default {
       }
     },
     async save() {
+      // 自定义供应商必须有地址，否则会存下一份「一定报错」的配置
+      if (this.provider === 'custom' && !(this.customBaseUrl || '').trim()) {
+        ElMessage.error('请先填写接口地址（例如 https://api.siliconflow.cn/v1）')
+        return
+      }
       this.saving = true
       try {
-        await api.post('/config/set', { key: 'provider', value: this.provider })
+        // 地址要先存：后端在切到 custom 时会检查库里有没有地址
+        if (this.provider === 'custom') {
+          await api.post('/config/set', { key: 'custom_base_url', value: (this.customBaseUrl || '').trim() })
+          await api.post('/config/set', { key: 'custom_vision_model', value: (this.customVisionModel || '').trim() })
+        }
+        // 后端对个别配置项会返回 {ok:false}（不是 HTTP 错误），axios 不会 reject，这里要显式检查
+        var provRes = await api.post('/config/set', { key: 'provider', value: this.provider })
+        if (provRes && provRes.ok === false) throw new Error(provRes.message || '保存供应商失败')
         var self = this
         var keyIds = this.keyProviders
         for (var i = 0; i < keyIds.length; i++) {
@@ -763,7 +849,14 @@ export default {
     async test() {
       this.testing = true
       try {
-        var res = await api.post('/config/test')
+        // 用当前输入测，而不是库里已保存的：改完地址/Key 想先试一下再保存，否则得先存成一份错的
+        var body = { provider: this.provider }
+        var typedKey = (this.keys[this.provider] || '').trim()
+        var typedModel = (this.models[this.provider] || '').trim()
+        if (typedKey) body.api_key = typedKey
+        if (typedModel) body.model = typedModel
+        if (this.provider === 'custom') body.base_url = (this.customBaseUrl || '').trim()
+        var res = await api.post('/config/test', body)
         ElMessage.success('连接成功（' + res.provider + ' / ' + res.model + '）：' + res.reply)
       } catch (e) {
         ElMessage.error(e.message)
@@ -841,6 +934,28 @@ export default {
 .inline-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .inline-row .el-input { flex: 1 1 260px; min-width: 0; }
 .key-url { flex-shrink: 0; font-size: 13px; }
+
+/* ---------- 自定义 OpenAI 兼容接口：预设地址 chip ---------- */
+.custom-block { gap: 9px; }
+.preset-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.preset-label { font-size: 12px; color: var(--c-text-3); flex-shrink: 0; }
+.preset-chip {
+  font: inherit; font-size: 12px; line-height: 1;
+  padding: 6px 11px; border-radius: 999px;
+  border: 1px solid var(--c-border);
+  background: var(--c-bg-soft); color: var(--c-text-2);
+  cursor: pointer; transition: border-color .15s, color .15s, background .15s;
+}
+.preset-chip:hover { border-color: var(--c-primary); color: var(--c-primary); }
+.preset-chip.active {
+  border-color: var(--c-primary);
+  background: var(--c-primary-soft);
+  color: var(--c-primary);
+  font-weight: 600;
+}
+.custom-block code {
+  background: var(--c-bg-soft); padding: 1px 5px; border-radius: 4px; font-size: 12px;
+}
 
 /* ---------- 配色卡 ---------- */
 .palette-row {

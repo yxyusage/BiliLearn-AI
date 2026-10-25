@@ -313,6 +313,7 @@
                         <el-option label="OpenAI GPT-4o（视觉）" value="openai" />
                         <el-option label="通义千问 qwen-vl-max" value="qwen" />
                         <el-option label="Kimi K2（视觉）" value="kimi" />
+                        <el-option label="自定义（用设置里的视觉模型）" value="custom" />
                       </el-select>
                       <el-button type="primary" size="small" :loading="formulasLoading" @click="generateFormulas">
                         提取板书公式
@@ -819,6 +820,12 @@ export default {
         this.dictationEnabled = cfg.dictation_enabled !== false
         this.variantEnabled = cfg.variant_enabled !== false
         this.diagnosisEnabled = cfg.diagnosis_enabled !== false
+        // 默认视觉供应商跟随当前默认供应商：否则用「自定义」接进来的人，
+        // 点「提取板书公式」时默认还是 DeepSeek，会报一个与他配置无关的错误
+        var p = cfg.provider || 'deepseek'
+        if (p === 'custom' || ['deepseek', 'openai', 'qwen', 'kimi'].indexOf(p) >= 0) {
+          this.visionProvider = p
+        }
       } catch (e) { /* 读取失败按默认值 */ }
     },
     async load() {

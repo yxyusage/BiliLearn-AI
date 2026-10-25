@@ -1,9 +1,34 @@
 """大模型工厂与供应商元信息。"""
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 from .base import BaseLLM
 from .ollama import OllamaLLM
 from .openai_compat import OpenAICompatLLM
+
+
+def normalize_base_url(url: str) -> str:
+    """把用户填的接口地址整理成能直接拼 /chat/completions 的形式。
+
+    用户常见的三种填法都得能用：
+      · https://api.siliconflow.cn        → 补成 .../v1（只填了域名）
+      · https://api.siliconflow.cn/v1/    → 去掉尾斜杠
+      · https://api.siliconflow.cn/v1/chat/completions → 切掉多余路径
+    注意不能盲目补 /v1：商汤是 /compatible-mode/v1，one-api 可能是 /v1，
+    自建网关也可能是 /openai —— 已有路径就原样尊重。
+    """
+    u = (url or "").strip().rstrip("/")
+    if not u:
+        return ""
+    for suffix in ("/chat/completions", "/completions"):
+        if u.endswith(suffix):
+            u = u[: -len(suffix)].rstrip("/")
+            break
+    parsed = urlparse(u)
+    if not parsed.path or parsed.path == "/":
+        u = u + "/v1"
+    return u
+
 
 PROVIDERS: Dict[str, Dict[str, Any]] = {
     "deepseek": {
@@ -71,7 +96,66 @@ PROVIDERS: Dict[str, Dict[str, Any]] = {
         # 本机模型由 Ollama 自己管理，列表从它的 /api/tags 拉
         "models": [],
     },
+    # ---------------------------------------------------------------
+    # 自定义 OpenAI 兼容接口：硅基流动 / 商汤 / OpenRouter / 自建 one-api 等。
+    # 这类平台的差别几乎只在 base_url 和 model id，协议层一致，所以单独做成
+    # 一个 provider，而不是给每个内置供应商都加一个地址输入框 ——
+    # 后者会让「默认供应商」这个下拉越来越长，用户也不知道该选哪个。
+    # ---------------------------------------------------------------
+    "custom": {
+        "name": "自定义（OpenAI 兼容）",
+        "base_url": "",           # 必须由用户填写，见 requires_base_url
+        "default_model": "",
+        "vision_model": "",       # 由用户在设置里单独填，见 custom_vision_model
+        "kind": "openai",
+        "need_key": True,
+        "key_url": "",
+        "max_output_tokens": 8192,
+        "models": [],
+        "requires_base_url": True,
+    },
 }
+
+
+# 常见国内/海外 OpenAI 兼容平台的地址预设：填错 base_url 是这类接入最高频的坑
+# （少写 /v1、多写 /chat/completions、把控制台地址当接口地址）。
+COMPAT_PRESETS = [
+    {
+        "id": "siliconflow",
+        "name": "硅基流动 SiliconFlow",
+        "base_url": "https://api.siliconflow.cn/v1",
+        "key_url": "https://cloud.siliconflow.cn/account/ak",
+        "note": "模型 id 形如 deepseek-ai/DeepSeek-V3，必须带组织名前缀",
+    },
+    {
+        "id": "sensenova",
+        "name": "商汤 SenseNova（新版）",
+        "base_url": "https://token.sensenova.cn/v1",
+        "key_url": "https://platform.sensenova.cn/",
+        "note": "Key 以 sk- 开头，与旧版 APP_ID/SECRET 不是一套",
+    },
+    {
+        "id": "sensenova-sc",
+        "name": "商汤大装置（旧版）",
+        "base_url": "https://api.sensenova.cn/compatible-mode/v1",
+        "key_url": "https://console.sensecore.cn/",
+        "note": "地址带 /compatible-mode，别只填 api.sensenova.cn",
+    },
+    {
+        "id": "openrouter",
+        "name": "OpenRouter",
+        "base_url": "https://openrouter.ai/api/v1",
+        "key_url": "https://openrouter.ai/keys",
+        "note": "模型 id 形如 anthropic/claude-3.5-sonnet",
+    },
+    {
+        "id": "oneapi",
+        "name": "自建 one-api / new-api",
+        "base_url": "http://127.0.0.1:3000/v1",
+        "key_url": "",
+        "note": "把地址和端口换成你自己的网关",
+    },
+]
 
 
 # 支持视觉输入的模型（按供应商），用于板书/公式截图识别
@@ -91,8 +175,13 @@ def build_llm(
     if info["kind"] == "ollama":
         llm = OllamaLLM(base_url=base_url or info["base_url"], model=model or info["default_model"])
     else:
+        resolved_base = normalize_base_url(base_url or info["base_url"])
+        if provider == "custom" and not resolved_base:
+            raise ValueError("还没填「接口地址」：自定义供应商必须先填 OpenAI 兼容地址（例如 https://api.siliconflow.cn/v1）")
+        if provider == "custom" and not (model or info["default_model"]):
+            raise ValueError("还没填「模型名称」：自定义供应商没有默认模型，请填写接口里的准确 id")
         llm = OpenAICompatLLM(
-            base_url=base_url or info["base_url"],
+            base_url=resolved_base,
             api_key=api_key or "",
             model=model or info["default_model"],
         )
