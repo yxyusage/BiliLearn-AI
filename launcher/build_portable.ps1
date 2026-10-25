@@ -1,4 +1,4 @@
-﻿# 打包 Windows 便携版：BiliLearn-AI-v<版本>-portable.zip
+# 打包 Windows 便携版：BiliLearn-AI-v<版本>-portable.zip
 # 用法（在项目根目录）：powershell -ExecutionPolicy Bypass -File launcher\build_portable.ps1
 #
 # 便携版 = 源码 + 已构建的 frontend/dist + 根目录的 BiliLearn-AI-Launcher.exe
@@ -48,11 +48,18 @@ $excludeDirs = @(
     (Join-Path $root "backend\data"),
     (Join-Path $root "launcher\build"),
     (Join-Path $root "launcher\dist"),
-    (Join-Path $root "问题汇总")
+    (Join-Path $root "问题汇总"),
+    # 内部资料不进发布包
+    (Join-Path $root "BiliLearn-AI-SaaS-v1.0-完整设计文档")
 )
 $excludeFiles = @(
     (Join-Path $root "friend_error.png"),
-    (Join-Path $root "start.bat - 快捷方式.lnk")
+    (Join-Path $root "start.bat - 快捷方式.lnk"),
+    (Join-Path $root "BiliLearn-AI-Launcher.exe"),
+    (Join-Path $root "launcher_config.json"),
+    (Join-Path $root "前后端接口对齐清单-v1.md"),
+    (Join-Path $root ".env"),
+    (Join-Path $root "backend\.env")
 )
 robocopy $root $stageRoot /E /XD @excludeDirs __pycache__ /XF @excludeFiles *.pyc *.zip /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "robocopy 拷贝失败（exit=$LASTEXITCODE）" }
