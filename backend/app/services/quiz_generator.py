@@ -43,6 +43,32 @@ def _normalize_judge_answer(answer: str) -> str:
     return text
 
 
+def _is_judge_answer(answer: str) -> bool:
+    """答案是否真的是判断值；计算题的答案通常是数值/单位/多段结论。"""
+    text = str(answer or "").strip()
+    if re.search(r"(正确|错误|对的?|不对|true|false|√|×|✓|✗)", text, re.I):
+        return True
+    return False
+
+
+def _looks_like_calculation(stem: str, answer: str) -> bool:
+    """模型常把计算题误标成 judge；用题干+答案做保守纠正。"""
+    if _is_judge_answer(answer):
+        return False
+    text = (str(stem or "") + " " + str(answer or "")).lower()
+    asks_calculation = re.search(
+        r"(求|计算|多少|总厚度|总长度|总面积|增加|减少|降低|面积|体积|长度|重量|速度|温度|功率|压强|电流|电压|电阻|结果|应为|需要多少|合计|总计)",
+        text,
+        re.I,
+    )
+    has_number_with_unit = re.search(
+        r"\d+(?:\.\d+)?\s*(?:mm|cm|m|km|kg|g|s|min|h|分钟|小时|元|%|℃|度|平方米|立方米|n|pa|v|a|w)",
+        text,
+        re.I,
+    )
+    return bool(asks_calculation or has_number_with_unit)
+
+
 def normalize_fill_answer(answer) -> str:
     """填空题答案归一为“空 | 空”，每空内等价答案用“ / ”分隔。"""
     if isinstance(answer, list):
@@ -120,18 +146,24 @@ def normalize_question(q: dict) -> dict:
     raw_options = [str(o).strip() for o in (q.get("options") or []) if str(o).strip()]
     options = [_strip_option_prefix(o) for o in raw_options]
     raw_type = str(q.get("type") or "").strip().lower()
+    raw_answer = str(q.get("answer") or "").strip()
     if raw_type in ("judge", "bool", "tf") or (not options and re.search(r"(判断|是否|对错|正误)", stem)):
-        qtype = "judge"
+        # 判断题必须是“命题 + 正确/错误”结构；如果题干在求值、答案又是数值/多段结论，
+        # 即使模型标成 judge，也按计算题处理，避免前端只给“正确/错误”两个按钮。
+        if _looks_like_calculation(stem, raw_answer):
+            qtype = "calc"
+        else:
+            qtype = "judge"
     elif raw_type in ("fill", "blank", "cloze") or (not options and _BLANK.search(stem)):
         qtype = "fill"
-    elif raw_type == "single" or (len(options) >= 2 and raw_type not in ("calc",)):
-        qtype = "single"
     elif raw_type == "calc":
         qtype = "calc"
+    elif raw_type == "single" or len(options) >= 2:
+        qtype = "single"
     else:
         # 兜底：模型若仍输出证明/简答等长文作答题型，归入计算题走 AI 批改
         qtype = "calc"
-    answer = str(q.get("answer") or "").strip()
+    answer = raw_answer
     if qtype == "single" and options:
         answer = _normalize_single_answer(answer, options)
     elif qtype == "judge":
