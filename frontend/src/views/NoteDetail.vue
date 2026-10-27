@@ -76,6 +76,15 @@
               :available="localAvailable"
             />
             <VideoPlayer v-else ref="player" :bvid="bvid" :page="page" />
+            <div v-if="siblings.length > 1" class="ep-nav">
+              <el-button size="small" :disabled="siblingIdx <= 0" @click="switchEpisode(siblingIdx - 1)">
+                ← 上一集
+              </el-button>
+              <span class="ep-info">第 {{ page }} 集 / 共 {{ siblings.length }} 集</span>
+              <el-button size="small" :disabled="siblingIdx >= siblings.length - 1" @click="switchEpisode(siblingIdx + 1)">
+                下一集 →
+              </el-button>
+            </div>
             <div class="meta-line">
               <el-tag size="small" :type="isLocal ? 'success' : 'info'" effect="plain">
                 {{ isLocal ? '本地视频' : bvid }}
@@ -635,6 +644,8 @@ export default {
       bvid: '',
       page: 1,
       title: '',
+      siblings: [],
+      siblingIdx: -1,
       subject: 'general',
       // 本地视频笔记
       source: 'bilibili',
@@ -854,6 +865,7 @@ export default {
       }
       this.bvid = data.bvid
       this.page = data.page
+      this.loadSiblings(data.bvid)
       this.title = data.title
       this.subject = data.subject
       this.source = data.source || 'bilibili'
@@ -969,6 +981,22 @@ export default {
     qtypeName(t) {
       var names = { single: '单选题', judge: '判断题', fill: '填空题', calc: '计算题', proof: '思考卡' }
       return names[t] || '题目'
+    },
+    async loadSiblings(bvid) {
+      if (!bvid || this.source === 'local') { this.siblings = []; this.siblingIdx = -1; return }
+      try {
+        var list = await fetch('/api/notes/siblings?bvid=' + encodeURIComponent(bvid)).then(function (r) { return r.json() })
+        this.siblings = Array.isArray(list) ? list : []
+        var self = this
+        this.siblingIdx = this.siblings.findIndex(function (s) { return s.page === self.page })
+      } catch (e) {
+        this.siblings = []; this.siblingIdx = -1
+      }
+    },
+    switchEpisode(idx) {
+      var target = this.siblings[idx]
+      if (!target) return
+      this.$router.push('/note/' + target.id)
     },
     jump(hms, ci, si) {
       var sec = hmsToSeconds(hms)
@@ -1433,6 +1461,8 @@ export default {
 }
 .layout.top .sticky-video { max-width: 900px; margin: 0 auto; }
 .meta-line { margin: 10px 0 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ep-nav { margin: 8px 0 0; display: flex; align-items: center; justify-content: center; gap: 12px; }
+.ep-info { font-size: 13px; color: var(--c-text-2, #57606a); }
 .note-title { font-size: 15px; font-weight: 600; color: var(--c-text); }
 
 .split-divider {

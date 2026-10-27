@@ -3,10 +3,10 @@
     <iframe :src="src" scrolling="no" frameborder="0" allowfullscreen="true" @load="onLoad"></iframe>
     <el-tooltip placement="bottom-end" effect="dark">
       <template #content>
-        登录 B 站账号后可在播放器右下角调节倍速与清晰度。<br />
-        未登录时部分功能受限，点击会跳转 B 站登录页。
+        在「设置」中填入 Bilibili Cookie 可解锁 1080P 高清与倍速播放。<br />
+        未填 Cookie 时默认 480P，倍速控件仍可用。
       </template>
-      <span class="vp-hint">💡 登录B站可调倍速/清晰度</span>
+      <span class="vp-hint">💡 填 Cookie 解锁 1080P + 倍速</span>
     </el-tooltip>
     <div v-if="loading" class="vp-loading">
       <span class="vp-spinner"></span>
@@ -32,7 +32,7 @@ export default {
   },
   computed: {
     src() {
-      var url = 'https://player.bilibili.com/player.html?bvid=' + this.bvid + '&page=' + (this.page || 1) + '&high_quality=1&danmaku=0&as_wide=1&wide_screen_mode=1'
+      var url = '/api/remote/player?bvid=' + this.bvid + '&page=' + (this.page || 1) + '&high_quality=1&danmaku=0&as_wide=1&wide_screen_mode=1'
       if (this.currentTime > 0) {
         url += '&t=' + Math.floor(this.currentTime) + '&autoplay=1'
       }

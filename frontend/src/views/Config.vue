@@ -218,7 +218,7 @@
             @input="markDirty"
           />
           <p class="hint">
-            仅保存在本地。作用是拿到「登录后才可见」的官方字幕 / AI 字幕与受限视频；不配也能用，只是这类字幕拿不到。
+            仅保存在本地。填入后可解锁 <b>1080P 高清播放、倍速控制</b>，以及登录后才可见的官方字幕 / AI 字幕；不配也能用，默认 480P。
           </p>
           <div class="inline-row">
             <el-button size="small" :loading="cookieChecking" @click="checkCookie">验证登录状态</el-button>

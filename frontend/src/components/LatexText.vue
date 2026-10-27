@@ -44,4 +44,23 @@ export default {
   padding: 0 5px; font-family: Consolas, Monaco, monospace; font-size: 0.92em;
 }
 .latex-md :deep(.latex-fail-block) { display: block; padding: 8px 10px; margin: 6px 0; white-space: pre-wrap; }
+.latex-md :deep(.md-table) {
+  border-collapse: collapse; margin: 10px 0; width: auto; max-width: 100%;
+  font-size: 14px; overflow-x: auto; display: block;
+}
+.latex-md :deep(.md-table th), .latex-md :deep(.md-table td) {
+  border: 1px solid var(--c-border, #d0d7de); padding: 6px 12px; text-align: left;
+}
+.latex-md :deep(.md-table th) { background: var(--c-bg-soft, #f6f8fa); font-weight: 600; }
+.latex-md :deep(.md-h1), .latex-md :deep(.md-h2), .latex-md :deep(.md-h3), .latex-md :deep(.md-h4) {
+  margin: 14px 0 6px; line-height: 1.4; font-weight: 600;
+}
+.latex-md :deep(.md-h1) { font-size: 1.5em; }
+.latex-md :deep(.md-h2) { font-size: 1.3em; }
+.latex-md :deep(.md-h3) { font-size: 1.15em; }
+.latex-md :deep(.md-h4) { font-size: 1.05em; }
+.latex-md :deep(.md-quote) {
+  border-left: 3px solid var(--c-accent, #4f8ef7); padding: 4px 12px;
+  margin: 8px 0; color: var(--c-text-2, #57606a); background: var(--c-bg-soft, #f6f8fa);
+}
 </style>

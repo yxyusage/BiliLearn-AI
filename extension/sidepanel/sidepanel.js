@@ -673,20 +673,64 @@
     els.chatInput.value = '';
     els.chatSend.disabled = true;
     els.chatSend.textContent = '...';
+    state.chatHistory.push({ role: 'user', content: text });
+
+    var aiDiv = document.createElement('div');
+    aiDiv.className = 'chat-msg ai';
+    aiDiv.innerHTML = '<div class="bubble"><span class="typing">▋</span></div>';
+    els.chatMessages.appendChild(aiDiv);
+    els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
+    var bubble = aiDiv.querySelector('.bubble');
+    var full = '';
+
     try {
       var history = state.chatHistory.slice(-10);
-      var resp = await sendBg({ type: 'chatNote', noteId: state.note.id, message: text, history: history });
-      if (resp.ok && resp.data && resp.data.reply) {
-        var reply = resp.data.reply;
-        state.chatHistory.push({ role: 'user', content: text });
-        state.chatHistory.push({ role: 'assistant', content: reply });
-        appendChatMsg('ai', formatChatReply(reply));
-      } else {
-        appendChatMsg('ai', '⚠️ ' + (resp.error || 'AI 答疑失败'));
+      var base = (state.settings.backendUrl || 'http://127.0.0.1:8000').replace(/\/+$/, '');
+      var resp = await fetch(base + '/api/notes/' + state.note.id + '/chat/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, history: history })
+      });
+      if (!resp.ok) {
+        var errText = await resp.text();
+        throw new Error('请求失败 (' + resp.status + ') ' + errText);
       }
+      var reader = resp.body.getReader();
+      var decoder = new TextDecoder('utf-8');
+      var buf = '';
+      while (true) {
+        var chunk = await reader.read();
+        if (chunk.done) break;
+        buf += decoder.decode(chunk.value, { stream: true });
+        var parts = buf.split('\n\n');
+        buf = parts.pop();
+        for (var i = 0; i < parts.length; i++) {
+          var line = parts[i].trim();
+          if (!line || line.indexOf('data: ') !== 0) continue;
+          var payload = line.slice(6);
+          try {
+            var obj = JSON.parse(payload);
+            if (obj.delta) {
+              full += obj.delta;
+              bubble.innerHTML = formatChatReply(full) + '<span class="typing">▋</span>';
+              els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
+            } else if (obj.error) {
+              throw new Error(obj.error);
+            } else if (obj.done) {
+              bubble.innerHTML = formatChatReply(full);
+            }
+          } catch (e) {
+            if (e.message && e.message.indexOf('JSON') !== 0) throw e;
+          }
+        }
+      }
+      bubble.innerHTML = formatChatReply(full);
+      state.chatHistory.push({ role: 'assistant', content: full });
+      renderMathInElement(aiDiv);
     } catch (e) {
-      appendChatMsg('ai', '⚠️ ' + e.message);
+      bubble.innerHTML = '⚠️ ' + escapeHtml(e.message);
     }
+    els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
     els.chatSend.disabled = false;
     els.chatSend.textContent = '发送';
   }

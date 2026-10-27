@@ -378,6 +378,23 @@ def list_notes(db: Session = Depends(get_db), limit: int = 50):
     ]
 
 
+@router.get("/siblings")
+def list_siblings(bvid: str, db: Session = Depends(get_db)):
+    """同一 bvid 的所有已完成分P（用于合集"上一集/下一集"切换）。"""
+    if not bvid:
+        return []
+    rows = (
+        db.query(Note)
+        .filter(Note.bvid == bvid, Note.status == "done", Note.source == "bilibili")
+        .order_by(Note.page.asc())
+        .all()
+    )
+    return [
+        {"id": n.id, "page": n.page, "title": n.title}
+        for n in rows
+    ]
+
+
 @router.get("/search")
 def search_notes(q: str, db: Session = Depends(get_db), limit: int = 50):
     keyword = f"%{q.strip()}%"
