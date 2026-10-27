@@ -1424,6 +1424,14 @@ export default {
   watch: {
     layoutMode(val) {
       localStorage.setItem('bililearn-layout', val)
+    },
+    '$route.params.id'(val) {
+      if (!val) return
+      this.noteId = Number(val)
+      this.chatStorageKey = 'bililearn-chat-' + this.noteId
+      this.siblings = []
+      this.siblingIdx = -1
+      this.load()
     }
   }
 }
