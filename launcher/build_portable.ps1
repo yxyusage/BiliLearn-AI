@@ -29,8 +29,9 @@ if (-not (Test-Path $distIndex)) {
     Write-Host "[1/4] 复用已有 frontend/dist"
 }
 
-$exe = Join-Path $root "BiliLearn-AI-Launcher.exe"
-if (-not (Test-Path $exe)) { $exe = Join-Path $root "launcher\dist\BiliLearn-AI-Launcher.exe" }
+# 优先使用刚构建的 launcher/dist；根目录 exe 可能正在运行而无法覆盖。
+$exe = Join-Path $root "launcher\dist\BiliLearn-AI-Launcher.exe"
+if (-not (Test-Path $exe)) { $exe = Join-Path $root "BiliLearn-AI-Launcher.exe" }
 if (-not (Test-Path $exe)) {
     throw "找不到 BiliLearn-AI-Launcher.exe，请先运行 launcher\build_windows.bat 打包启动器"
 }
