@@ -512,6 +512,12 @@
     return html + '</tbody></table></div>';
   }
 
+  var chatMathTimer = null;
+  function scheduleChatMath(el) {
+    if (chatMathTimer) clearTimeout(chatMathTimer);
+    chatMathTimer = setTimeout(function () { renderMathInElement(el); }, 120);
+  }
+
   function renderMathInElement(el) {
     if (typeof katex === 'undefined') return;
     el.querySelectorAll('.formula-display').forEach(function (node) {
@@ -713,6 +719,7 @@
             if (obj.delta) {
               full += obj.delta;
               bubble.innerHTML = formatChatReply(full) + '<span class="typing">▋</span>';
+              scheduleChatMath(bubble);
               els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
             } else if (obj.error) {
               throw new Error(obj.error);
@@ -736,13 +743,13 @@
   }
 
   function formatChatReply(text) {
+    if (window.BiliMarkdown && window.BiliMarkdown.renderChat) {
+      return window.BiliMarkdown.renderChat(text);
+    }
+    // 兜底：扩展未加载 lib/markdown.js 时，至少不要露出原始 HTML。
     var html = escapeHtml(text);
     html = html.replace(/\n/g, '<br>');
     html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-    html = html.replace(/\$([^$]+?)\$/g, function (m, latex) {
-      return '<span class="formula-inline" data-latex="' + latex.replace(/"/g, '&quot;') + '"></span>';
-    });
     return html;
   }
 
