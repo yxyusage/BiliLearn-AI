@@ -328,6 +328,9 @@ html, body {
 }
 .msg-ai .msg-bubble .md-code code { background: none; padding: 0; font-size: calc(var(--font-size) - 1px); line-height: 1.6; }
 .msg-ai .msg-bubble .md-code[data-lang="mermaid"] { border-left: 3px solid var(--primary); }
+.msg-ai .msg-bubble .md-code.md-code-error { border-left-color: var(--danger); }
+.msg-ai .msg-bubble .md-mermaid { margin: 8px 0; overflow-x: auto; text-align: center; }
+.msg-ai .msg-bubble .md-mermaid svg { max-width: 100%; height: auto; }
 .msg-ai .msg-bubble .md-quote {
   margin: 6px 0; padding: 2px 0 2px 10px;
   border-left: 3px solid var(--primary); color: var(--text-2);

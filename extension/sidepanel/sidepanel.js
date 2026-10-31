@@ -518,6 +518,40 @@
     chatMathTimer = setTimeout(function () { renderMathInElement(el); }, 120);
   }
 
+  var mermaidSeq = 0;
+  if (window.mermaid) {
+    try {
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: 'strict',
+        theme: document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default'
+      });
+    } catch (e) { /* 保留代码块兜底 */ }
+  }
+
+  function renderMermaidInElement(el) {
+    if (!window.mermaid) return;
+    var nodes = el.querySelectorAll('pre.md-code[data-lang="mermaid"]');
+    Array.prototype.forEach.call(nodes, function (pre) {
+      var code = pre.textContent || '';
+      if (!code.trim()) return;
+      mermaidSeq += 1;
+      var id = 'md-mermaid-' + mermaidSeq;
+      try {
+        Promise.resolve(mermaid.render(id, code)).then(function (result) {
+        var box = document.createElement('div');
+        box.className = 'md-mermaid';
+        box.innerHTML = result.svg;
+          pre.replaceWith(box);
+        }).catch(function () {
+          pre.classList.add('md-code-error');
+        });
+      } catch (e) {
+        pre.classList.add('md-code-error');
+      }
+    });
+  }
+
   function renderMathInElement(el) {
     if (typeof katex === 'undefined') return;
     el.querySelectorAll('.formula-display').forEach(function (node) {
@@ -734,6 +768,7 @@
       bubble.innerHTML = formatChatReply(full);
       state.chatHistory.push({ role: 'assistant', content: full });
       renderMathInElement(aiDiv);
+      renderMermaidInElement(aiDiv);
     } catch (e) {
       bubble.innerHTML = '⚠️ ' + escapeHtml(e.message);
     }
