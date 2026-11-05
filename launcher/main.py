@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 
 import customtkinter as ctk
 import requests
+from tkinter import filedialog, messagebox
 
 # 快速依赖安装（镜像测速 + 并发下载）；既能被 import，也能命令行单独跑
 _HERE = Path(__file__).resolve().parent
@@ -25,7 +26,7 @@ import pycompat  # noqa: E402  Python 版本与「依赖装不上」的判断（
 # 最近一次"找到但不可用"的 Python（供界面给出可读原因）
 LAST_PYTHON_PROBLEM = ""
 
-VERSION = "1.8.21"
+VERSION = "1.8.22"
 APP_NAME = "BiliLearn-AI"
 GITHUB_REPO = "yxyusage/BiliLearn-AI"
 DEFAULT_PORT = 8000
@@ -118,6 +119,33 @@ COLORS = {
 }
 
 
+def _effective_data_dir(config=None):
+    """启动器与后端使用同一套规则：配置优先，其次 BILI_DATA_DIR，最后默认目录。"""
+    config = config or load_config()
+    custom = str(config.get("data_dir") or "").strip()
+    if custom:
+        return Path(custom).expanduser()
+    return _resolve_data_dir()
+
+
+def _copy_data_dir(src: Path, dst: Path):
+    """迁移数据库和笔记；缓存/依赖可重建，不复制，避免切换目录卡很久。"""
+    src, dst = Path(src), Path(dst)
+    if src.resolve() == dst.resolve():
+        return
+    dst.mkdir(parents=True, exist_ok=True)
+    for entry in src.iterdir():
+        if entry.name in ("cache", "vendor"):
+            continue
+        target = dst / entry.name
+        if target.exists():
+            continue
+        if entry.is_dir():
+            shutil.copytree(entry, target)
+        else:
+            shutil.copy2(entry, target)
+
+
 def load_config():
     default = {
         "api_key": "",
@@ -127,6 +155,7 @@ def load_config():
         "theme": "dark",
         "auto_open_browser": True,
         "minimize_to_tray": True,
+        "data_dir": "",
     }
     if CONFIG_PATH.exists():
         try:
@@ -607,6 +636,9 @@ class ServiceManager:
         # 后端读取的是 BILI_ 前缀的环境变量（见 backend/app/config.py）
         env, _ = build_subprocess_env()
         env["PYTHONUNBUFFERED"] = "1"
+        custom_data_dir = str(config.get("data_dir") or "").strip()
+        if custom_data_dir:
+            env["BILI_DATA_DIR"] = str(Path(custom_data_dir).expanduser())
         # 语音识别模型默认走国内镜像（与 start.ps1 / start.sh 一致；用户自己设过就尊重用户）
         env.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
         # 镜像不代理 Xet 协议（大文件会 401），公共模型也无需 token，超时放宽到 60s
@@ -741,6 +773,30 @@ class BiliLearnLauncher(ctk.CTk):
 
         self._build_ui()
         self._check_update_silent()
+        # 只有全新安装（没有 launcher_config.json）才询问；老用户升级不打扰。
+        if not CONFIG_PATH.exists():
+            self.after(350, self._first_run_data_dir)
+
+    def _first_run_data_dir(self):
+        default = _effective_data_dir(self.config)
+        use_default = messagebox.askyesno(
+            "首次使用：选择笔记存放位置",
+            "笔记、数据库和复习记录默认保存在：\n\n"
+            + str(default)
+            + "\n\n使用这个默认位置吗？\n选择「否」可以换到其他盘或文件夹。",
+            parent=self,
+        )
+        chosen = None
+        if not use_default:
+            chosen = filedialog.askdirectory(
+                parent=self,
+                title="选择笔记存放位置",
+                initialdir=str(default.parent if default.parent.exists() else Path.home()),
+            )
+        path = Path(chosen).expanduser() if chosen else default
+        self.config["data_dir"] = str(path)
+        save_config(self.config)
+        self.log("笔记数据目录：" + str(path))
 
     def _on_close(self):
         if self.config.get("minimize_to_tray", True) and self._start_tray():
@@ -999,13 +1055,14 @@ class BiliLearnLauncher(ctk.CTk):
         SettingsWindow(self, self.config)
 
     def _open_data_dir(self):
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        data_dir = _effective_data_dir(self.config)
+        data_dir.mkdir(parents=True, exist_ok=True)
         if sys.platform == "win32":
-            os.startfile(str(DATA_DIR))
+            os.startfile(str(data_dir))
         elif sys.platform == "darwin":
-            subprocess.run(["open", str(DATA_DIR)])
+            subprocess.run(["open", str(data_dir)])
         else:
-            subprocess.run(["xdg-open", str(DATA_DIR)])
+            subprocess.run(["xdg-open", str(data_dir)])
 
     def _check_update(self):
         UpdateWindow(self)
@@ -1047,7 +1104,7 @@ class SettingsWindow(ctk.CTkToplevel):
         self.master_ref = master
         self.config = config
         self.title("设置")
-        self.geometry("440x520")
+        self.geometry("440x640")
         self.resizable(False, False)
         self.configure(fg_color=COLORS["bg"])
         self.transient(master)
@@ -1091,6 +1148,32 @@ class SettingsWindow(ctk.CTkToplevel):
             entry.grid(row=i * 2 + 1, column=0, sticky="ew", padx=20, pady=(0, 8))
             self.entries[key] = entry
 
+        ctk.CTkLabel(
+            form, text="笔记存放位置",
+            font=ctk.CTkFont(size=13),
+            text_color=COLORS["text_dim"]
+        ).grid(row=8, column=0, sticky="w", padx=20, pady=(14, 4))
+
+        data_row = ctk.CTkFrame(form, fg_color="transparent")
+        data_row.grid(row=9, column=0, sticky="ew", padx=20, pady=(0, 14))
+        data_row.grid_columnconfigure(0, weight=1)
+
+        self.data_dir_entry = ctk.CTkEntry(
+            data_row, height=38, corner_radius=8,
+            fg_color=COLORS["bg_input"],
+            border_color=COLORS["bg_input"],
+            text_color=COLORS["text"],
+        )
+        self.data_dir_entry.insert(0, str(_effective_data_dir(self.config)))
+        self.data_dir_entry.grid(row=0, column=0, sticky="ew")
+        ctk.CTkButton(
+            data_row, text="选择", width=58, height=38,
+            fg_color=COLORS["bg_input"],
+            hover_color=COLORS["accent_hover"],
+            text_color=COLORS["text"],
+            command=self._choose_data_dir,
+        ).grid(row=0, column=1, padx=(8, 0))
+
         self.auto_open_var = ctk.BooleanVar(value=self.config.get("auto_open_browser", True))
         ctk.CTkCheckBox(
             form, text="启动后自动打开浏览器",
@@ -1099,7 +1182,7 @@ class SettingsWindow(ctk.CTkToplevel):
             text_color=COLORS["text"],
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"]
-        ).grid(row=8, column=0, sticky="w", padx=20, pady=(8, 16))
+        ).grid(row=10, column=0, sticky="w", padx=20, pady=(8, 16))
 
         save_btn = ctk.CTkButton(
             self, text="保存设置",
@@ -1111,7 +1194,68 @@ class SettingsWindow(ctk.CTkToplevel):
         )
         save_btn.grid(row=2, column=0, padx=30, pady=20)
 
+    def _choose_data_dir(self):
+        current = self.data_dir_entry.get().strip()
+        chosen = filedialog.askdirectory(
+            parent=self,
+            title="选择笔记存放位置",
+            initialdir=current if current and Path(current).exists() else str(Path.home()),
+        )
+        if chosen:
+            self.data_dir_entry.delete(0, "end")
+            self.data_dir_entry.insert(0, chosen)
+
     def _save(self):
+        new_dir_text = self.data_dir_entry.get().strip()
+        old_dir = _effective_data_dir(self.config)
+        if new_dir_text:
+            new_dir = Path(new_dir_text).expanduser()
+            if new_dir != old_dir:
+                if self.master_ref.service.running or self.master_ref.service.starting:
+                    messagebox.showwarning("请先停止服务", "修改笔记存放位置前，请先停止后端服务，避免数据库被占用。", parent=self)
+                    return
+                old_resolved = old_dir.resolve()
+                new_resolved = new_dir.resolve()
+                if str(new_resolved).startswith(str(old_resolved) + os.sep) or str(old_resolved).startswith(str(new_resolved) + os.sep):
+                    messagebox.showerror("目录不能嵌套", "新目录不能放在当前数据目录里面，也不能包含当前数据目录。请选择另一个文件夹。", parent=self)
+                    return
+                try:
+                    new_dir.mkdir(parents=True, exist_ok=True)
+                    probe = new_dir / ".write_test"
+                    probe.write_text("ok", encoding="utf-8")
+                    probe.unlink()
+                except Exception as exc:  # noqa: BLE001
+                    messagebox.showerror("目录不可写", "无法写入这个目录：\n" + str(exc), parent=self)
+                    return
+                has_data = (new_dir / "bililearn.db").exists()
+                if has_data:
+                    if not messagebox.askyesno(
+                        "目标目录已有数据",
+                        "目标目录里已经有 bililearn.db。\n\n继续会直接使用这份已有数据，不会覆盖它。",
+                        parent=self,
+                    ):
+                        return
+                elif old_dir.exists():
+                    if messagebox.askyesno(
+                        "迁移现有笔记",
+                        "是否把当前笔记数据库和 notes 复制到新目录？\n\n旧目录会保留，可随时切回。",
+                        parent=self,
+                    ):
+                        try:
+                            _copy_data_dir(old_dir, new_dir)
+                        except Exception as exc:  # noqa: BLE001
+                            messagebox.showerror("迁移失败", "没有保存新位置，避免数据分裂：\n" + str(exc), parent=self)
+                            return
+                    elif not messagebox.askyesno(
+                        "使用空目录",
+                        "不迁移的话，新目录会从空白开始。确定继续吗？",
+                        parent=self,
+                    ):
+                        return
+                self.config["data_dir"] = str(new_dir)
+        else:
+            self.config["data_dir"] = ""
+
         for key, entry in self.entries.items():
             val = entry.get().strip()
             if key == "port":
@@ -1123,6 +1267,7 @@ class SettingsWindow(ctk.CTkToplevel):
         self.config["auto_open_browser"] = self.auto_open_var.get()
         save_config(self.config)
         self.master_ref.config = self.config
+        messagebox.showinfo("已保存", "笔记存放位置已更新。\n请停止并重新启动服务后生效。", parent=self)
         self.destroy()
 
 

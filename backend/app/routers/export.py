@@ -8,7 +8,7 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import Note
+from ..models import Note, SubtitleCache
 from ..services import note_generator, storage
 from ..services.export import (
     build_anki_apkg,
@@ -23,6 +23,33 @@ from ..services.export_assets import html_to_pdf
 from ..services.prompts import SUBJECTS
 
 router = APIRouter()
+
+
+
+def _subtitle_time(seconds) -> str:
+    if seconds is None:
+        seconds = 0
+    total_ms = max(0, int(round(float(seconds) * 1000)))
+    hours, total_ms = divmod(total_ms, 3600_000)
+    minutes, total_ms = divmod(total_ms, 60_000)
+    secs, millis = divmod(total_ms, 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+
+
+def _subtitle_items(note: Note, db: Session) -> list:
+    cache = (
+        db.query(SubtitleCache)
+        .filter(SubtitleCache.key == (note.bvid or "") + "_" + str(note.page or 1))
+        .first()
+    )
+    if not cache or not cache.subtitles:
+        return []
+    try:
+        items = json.loads(cache.subtitles)
+    except Exception:
+        return []
+    return items if isinstance(items, list) else []
 
 
 def _get_note(note_id: int, db: Session) -> Note:
@@ -83,6 +110,49 @@ def _note_payload(note: Note):
         "created_at": note.created_at.isoformat() if note.created_at else "",
     }
     return note_json, words, meta
+
+
+@router.get("/{note_id}/subtitles")
+def export_subtitles(note_id: int, format: str = "srt", db: Session = Depends(get_db)):
+    """导出已抓取/已转写的字幕，默认 SRT；也支持 txt / json。"""
+    note = _get_note(note_id, db)
+    items = _subtitle_items(note, db)
+    if not items:
+        raise HTTPException(status_code=404, detail="这篇笔记没有可用字幕；可先用有字幕的视频生成，或在设置里开启本地转写")
+
+    fmt = (format or "srt").lower()
+    if fmt not in ("srt", "txt", "json"):
+        raise HTTPException(status_code=400, detail="不支持的字幕格式，可选 srt / txt / json")
+
+    if fmt == "json":
+        body = json.dumps(items, ensure_ascii=False, indent=2)
+        media = "application/json; charset=utf-8"
+        ext = "json"
+    elif fmt == "txt":
+        body = "\n".join(str(item.get("content") or item.get("text") or "").strip() for item in items if isinstance(item, dict))
+        media = "text/plain; charset=utf-8"
+        ext = "txt"
+    else:
+        blocks = []
+        for index, item in enumerate(items, start=1):
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get("content") or item.get("text") or "").strip()
+            if not text:
+                continue
+            blocks.append(
+                f"{index}\n{_subtitle_time(item.get('from', item.get('start', 0)))} --> "
+                f"{_subtitle_time(item.get('to', item.get('end', 0)))}\n{text}"
+            )
+        body = "\n\n".join(blocks) + "\n"
+        media = "application/x-subrip; charset=utf-8"
+        ext = "srt"
+
+    base = (note.title or f"note-{note.id}").replace("/", "_").replace("\\", "_")
+    filename = f"{base}.字幕.{ext}"
+    headers = _attach(filename)
+    headers["Cache-Control"] = "no-store"
+    return Response(content=body, media_type=media, headers=headers)
 
 
 @router.get("/{note_id}/markdown")

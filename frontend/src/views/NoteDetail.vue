@@ -59,6 +59,7 @@
           <el-button size="small" @click="download('pdf')">导出 PDF</el-button>
           <el-button size="small" @click="download('docx')">导出 Word</el-button>
           <el-button size="small" @click="download('xmind')">导出 XMind</el-button>
+          <el-button size="small" @click="download('subtitles')">保存字幕</el-button>
           <el-button v-if="hasWords" size="small" @click="download('anki')">Anki 卡片</el-button>
           <el-button v-if="hasWords" size="small" @click="download('anki.csv')">CSV</el-button>
           <el-button size="small" type="primary" plain @click="chatVisible = true">💬 AI 答疑</el-button>
