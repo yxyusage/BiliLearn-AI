@@ -1,4 +1,4 @@
-# 打包 Windows 便携版：BiliLearn-AI-v<版本>-portable.zip
+﻿# 打包 Windows 便携版：BiliLearn-AI-v<版本>-portable.zip
 # 用法（在项目根目录）：powershell -ExecutionPolicy Bypass -File launcher\build_portable.ps1
 #
 # 便携版 = 源码 + 已构建的 frontend/dist + 根目录的 BiliLearn-AI-Launcher.exe
