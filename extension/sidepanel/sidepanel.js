@@ -469,13 +469,29 @@
   }
 
   function renderInline(text) {
-    var escaped = escapeHtml(text);
-    escaped = escaped.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    escaped = escaped.replace(/\$([^$]+?)\$/g, function (m, latex) {
-      return '<span class="formula-inline" data-latex="' + latex.replace(/"/g, '&quot;') + '"></span>';
+    // 笔记正文复用聊天同款的 Markdown 渲染器，保证侧边栏与 AI 答疑的排版一致
+    if (window.BiliMarkdown && window.BiliMarkdown.inline) {
+      return window.BiliMarkdown.inline(text);
+    }
+    var tokens = [];
+    function stash(html) {
+      var key = '\u0001' + tokens.length + '\u0001';
+      tokens.push(html);
+      return key;
+    }
+    var src = String(text == null ? '' : text);
+    // 行内代码与公式先抽成占位符：内容里的 * & " 不再参与 Markdown 解析，也不会被二次转义
+    src = src.replace(/\x60([^\x60\n]+?)\x60/g, function (_m, code) {
+      return stash('<code>' + escapeHtml(code) + '</code>');
     });
-    escaped = escaped.replace(/\n/g, '<br>');
-    return escaped;
+    var escaped = escapeHtml(src);
+    escaped = escaped.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    escaped = escaped.replace(/~~(.+?)~~/g, '<del>$1</del>');
+    escaped = escaped.replace(/\$([^$]+?)\$/g, function (m, latex) {
+      return stash('<span class="formula-inline" data-latex="' + latex.replace(/"/g, '&quot;') + '"></span>');
+    });
+    escaped = escaped.replace(/\u0001(\d+)\u0001/g, function (_m, index) { return tokens[Number(index)] || ''; });
+    return escaped.replace(/\n/g, '<br>');
   }
 
   // 单选答案：模型返回字母时补全选项文本，返回文本时原样展示

@@ -69,21 +69,36 @@ export function renderDisplayLatex(latex) {
   return fallback(raw, raw, true)
 }
 
+// 行内渲染：整段只做一次 HTML 转义。
+// 行内代码 / 公式先用占位符抽走，避免内容里的 * & " 被二次转义或被当成 Markdown。
 function renderInline(text) {
-  let html = escapeHtml(text)
-  html = html
-    .replace(/&amp;nbsp;/g, '&nbsp;')
-    .replace(/`([^`\n]+?)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*([^*\n]+?)\*/g, '<em>$1</em>')
-  html = html.replace(FORMULA_RE, function (match, dd, bb, ddInline, pp) {
+  let src = String(text == null ? '' : text)
+  const tokens = []
+
+  function stash(html) {
+    const key = '\u0001' + tokens.length + '\u0001'
+    tokens.push(html)
+    return key
+  }
+
+  src = src.replace(/\x60([^\x60\n]+?)\x60/g, function (_m, code) {
+    return stash('<code>' + escapeHtml(code) + '</code>')
+  })
+  src = src.replace(FORMULA_RE, function (match, dd, bb, ddInline, pp) {
     const display = dd != null || bb != null
     const tex = dd != null ? dd : (bb != null ? bb : (ddInline != null ? ddInline : pp))
     const rendered = renderTex(tex, display)
-    if (rendered) return rendered
-    return fallback(match, tex, display)
+    return stash(rendered || fallback(match, tex, display))
   })
-  return html
+
+  let html = escapeHtml(src)
+  html = html
+    .replace(/&amp;nbsp;/g, '&nbsp;')
+    .replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*\n]+?)\*/g, '<em>$1</em>')
+    .replace(/~~([^~\n]+?)~~/g, '<del>$1</del>')
+  html = html.replace(/\u0001(\d+)\u0001/g, function (_m, index) { return tokens[Number(index)] || '' })
+  return html.replace(/\n/g, '<br>')
 }
 
 function splitRow(line) {
@@ -93,15 +108,17 @@ function splitRow(line) {
 
 export function renderMarkdownLite(text) {
   if (!text) return ''
-  let html = escapeHtml(text)
+  const source = String(text).replace(/\r\n?/g, '\n')
 
+  // 围栏代码块先整块抽出，正文按行处理；这一步全程使用原文，
+  // 只有真正写进 HTML 时才转义一次（转义两次会把 " 变成 &quot;、& 变成 &amp;）。
   const codeBlocks = []
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, function (m, lang, code) {
+  const staged = source.replace(/\x60{3}[ \t]*([\w-]*)[ \t]*\n([\s\S]*?)\x60{3}/g, function (_m, lang, code) {
     codeBlocks.push({ lang: lang, code: code.replace(/\n$/, '') })
-    return '\0CODE' + (codeBlocks.length - 1) + '\0'
+    return '\n\u0001CODE' + (codeBlocks.length - 1) + '\u0001\n'
   })
 
-  const lines = html.split('\n')
+  const lines = staged.split('\n')
   const out = []
   let inList = false
   let listOrdered = false
@@ -120,7 +137,7 @@ export function renderMarkdownLite(text) {
   while (i < lines.length) {
     var line = lines[i]
 
-    var cm = line.match(/^\0CODE(\d+)\0\s*$/)
+    var cm = line.match(/^\u0001CODE(\d+)\u0001\s*$/)
     if (cm) {
       closeList(); closeQuote()
       var b = codeBlocks[Number(cm[1])]
@@ -207,9 +224,7 @@ export function renderMarkdownLite(text) {
   }
   closeList(); closeQuote()
   if (inCode) out.push('<pre class="md-code-block"><code>' + escapeHtml(codeBuf.join('\n')) + '</code></pre>')
-  html = out.join('\n')
 
-  html = html.replace(/\n+/g, '<br>')
-  html = html.replace(/\0CODE\d+\0/g, '')
-  return html
+  // 逐行输出：行与行之间保留换行（与旧实现一致的视觉间距）
+  return out.join('<br>\n')
 }

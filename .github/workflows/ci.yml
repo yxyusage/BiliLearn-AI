@@ -46,3 +46,5 @@ jobs:
       - name: Build
         working-directory: frontend
         run: npm run build
+      - name: Render regression tests
+        run: node --test tests/render.test.mjs

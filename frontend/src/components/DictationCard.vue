@@ -50,6 +50,14 @@
 import { ElMessage } from 'element-plus'
 import api from '../api'
 
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
 export default {
   name: 'DictationCard',
   props: {
@@ -82,8 +90,9 @@ export default {
       return this.answers.some(function (a) { return (a || '').trim() })
     },
     displayAnswer() {
+      // v-html 输出：答案里的 < & " 先转义，避免被当成 HTML 标签吞掉
       var blanks = String(this.item.answer || '').split('|')
-      var out = blanks.map(function (b, i) { return '第' + (i + 1) + '空：' + b.trim() })
+      var out = blanks.map(function (b, i) { return '第' + (i + 1) + '空：' + escapeHtml(b.trim()) })
       return out.join('<br/>')
     }
   },
